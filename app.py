@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from engine import BacktestEngine
-from portfolio_engine import PortfolioEngine
+from us_portfolio_engine import USPortfolioEngine, DataCache
 from scoring import ScoreParser
-from nifty_universe import (get_all_universe_names, get_universe, 
-                            get_broad_market_universes, get_sectoral_universes,
-                            get_cap_based_universes, get_thematic_universes)
+from us_universe import (get_all_universe_names, get_universe, 
+                         get_broad_market_universes, get_sectoral_universes,
+                         get_cap_based_universes, get_thematic_universes)
 from report_generator import create_excel_with_charts, create_pdf_report, prepare_complete_log_data
 import datetime
 import io
@@ -17,19 +16,19 @@ from pathlib import Path
 
 # Page config - MUST be first Streamlit command
 st.set_page_config(
-    page_title="Investing Scanner",
+    page_title="US Investing Scanner",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # Show loading indicator immediately for wake-up
 with st.spinner("🔄 App is waking up... Please wait..."):
-    pass  # Spinner shows during import time
+    pass
 
 # Initialize session state for backtest logs
-BACKTEST_LOG_FILE = Path("backtest_logs.json")
+BACKTEST_LOG_FILE = Path("us_backtest_logs.json")
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def load_backtest_logs_cached():
     """Load backtest logs from file with caching."""
     if BACKTEST_LOG_FILE.exists():
@@ -47,7 +46,7 @@ def load_backtest_logs():
     return load_backtest_logs_cached()
 
 def save_backtest_logs(logs):
-    """Save backtest logs to file with complete data (no truncation)."""
+    """Save backtest logs to file."""
     try:
         serializable_logs = []
         for log in logs:
@@ -56,7 +55,6 @@ def save_backtest_logs(logs):
                 'name': log['name'],
                 'config': log['config'],
                 'metrics': log['metrics'],
-                # Store complete data without truncation
                 'portfolio_values': log.get('portfolio_values', []),
                 'trades': log.get('trades', []),
                 'monthly_returns': log.get('monthly_returns', {})
@@ -65,20 +63,19 @@ def save_backtest_logs(logs):
         
         with open(BACKTEST_LOG_FILE, 'w') as f:
             json.dump(serializable_logs, f, indent=2, default=str)
-        # Clear cache after saving
         load_backtest_logs_cached.clear()
     except Exception as e:
         print(f"Error saving logs: {e}")
 
-@st.cache_data(ttl=86400)  # Cache universe names for 24 hours
+@st.cache_data(ttl=86400)
 def get_cached_universe_names():
     """Cache universe names to speed up app loading."""
     try:
         return sorted(get_all_universe_names())
     except Exception:
-        return ["NIFTY 50", "NIFTY 100", "NIFTY 200"]  # Fallback
+        return ["S&P 500", "NASDAQ 100", "DOW 30"]
 
-# Initialize session state with error handling
+# Initialize session state
 try:
     if 'backtest_logs' not in st.session_state:
         st.session_state.backtest_logs = load_backtest_logs()
@@ -115,7 +112,7 @@ st.markdown("""
         font-weight: 500;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #28a745;
+        background-color: #007bff;
         color: white !important;
         font-weight: 600;
     }
@@ -126,10 +123,10 @@ st.markdown("""
         margin-bottom: 8px;
     }
     .stock-name {
-        color: #00ff88;
+        color: #007bff;
         font-weight: 700;
         font-size: 18px;
-        text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        text-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
     }
     .time-remaining {
         font-size: 14px;
@@ -142,8 +139,8 @@ st.markdown("""
 # Header
 col_title, col_actions = st.columns([3, 1])
 with col_title:
-    st.title("Investing Scanner")
-    st.caption("Advanced Backtesting for Indian Stock Market")
+    st.title("🇺🇸 US Investing Scanner")
+    st.caption("Advanced Backtesting for US Stock Market")
 
 st.markdown("---")
 
@@ -169,14 +166,14 @@ with main_tabs[0]:
         )
         
         if selected_universe == "Custom":
-            custom_input = st.text_input("Stocks (comma-separated)", "RELIANCE, TCS, INFY")
+            custom_input = st.text_input("Stocks (comma-separated)", "AAPL, MSFT, GOOGL, AMZN, NVDA")
             universe = [s.strip() for s in custom_input.split(',')]
         else:
             universe = get_universe(selected_universe)
             st.caption(f"{len(universe)} stocks")
         
         st.markdown("**Capital & Size**")
-        initial_capital = st.number_input("Starting Capital (₹)", 10000, 100000000, 100000, 10000)
+        initial_capital = st.number_input("Starting Capital ($)", 10000, 100000000, 100000, 10000)
         num_stocks = st.number_input("No. of Stocks in Portfolio*", 1, 50, 5)
         exit_rank = st.number_input("Exit Rank*", num_stocks, 200, num_stocks * 2, 
                                     help="Stocks will exit if they fall below this rank. Should be > Portfolio Size")
@@ -232,11 +229,12 @@ with main_tabs[0]:
             if regime_type != "EQUITY":
                 regime_action = st.selectbox("Regime Filter Action",
                                             ["Half Portfolio", "Go Cash"])
-
-                # Index selection for regime filter - use all available universes
-                regime_index = st.selectbox("Regime Filter Index", sorted(get_all_universe_names()))
+                
+                # Index selection for regime filter - US indices
+                regime_indices = ["S&P 500", "NASDAQ 100", "DOW 30", "Russell 2000", "VIX"]
+                regime_index = st.selectbox("Regime Filter Index", regime_indices)
             else:
-                regime_action = "Half Portfolio"  # Fixed for EQUITY
+                regime_action = "Half Portfolio"
                 regime_index = None
             
             regime_config = {
@@ -253,8 +251,8 @@ with main_tabs[0]:
             
             uncorrelated_config = None
             if use_uncorrelated:
-                asset_type = st.text_input("Asset Type", "GOLDBEES",
-                                          help="Enter ticker symbol (e.g., GOLDBEES for Gold)")
+                asset_type = st.text_input("Asset Type", "GLD",
+                                          help="Enter ticker symbol (e.g., GLD for Gold ETF, TLT for Bonds)")
                 allocation_pct = st.number_input("Allocation %", 1, 100, 20,
                                                 help="% of portfolio value to allocate when regime triggers")
                 
@@ -306,13 +304,12 @@ with main_tabs[0]:
         else:
             # Initialize tracking variables
             start_time = time.time()
-            processed_count = [0]  # Use list to avoid nonlocal scope issues
+            processed_count = [0]
             total_count = len(universe)
             
             def progress_callback(current, total, ticker):
                 processed_count[0] = current
 
-                # Calculate time stats
                 elapsed = time.time() - start_time
                 elapsed_mins = int(elapsed // 60)
                 elapsed_secs = int(elapsed % 60)
@@ -328,11 +325,9 @@ with main_tabs[0]:
                 else:
                     time_str = "Calculating..."
 
-                # Update progress bar
                 progress = min(processed_count[0] / total, 1.0)
                 prog_bar.progress(progress)
 
-                # Update status text with all details
                 pct = (processed_count[0] / total * 100) if total > 0 else 0
                 status_container.markdown(f"""
                 <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 5px;">
@@ -350,7 +345,7 @@ with main_tabs[0]:
                 prog_bar = st.progress(0)
                 status_container = st.empty()
                 
-                engine = PortfolioEngine(universe, start_date, end_date, initial_capital)
+                engine = USPortfolioEngine(universe, start_date, end_date, initial_capital)
                 if engine.fetch_data(progress_callback=progress_callback):
                     prog_bar.empty()
                     status_container.empty()
@@ -375,14 +370,14 @@ with main_tabs[0]:
                         )
                         metrics = engine.get_metrics()
                         
-                        # Store in session_state so results persist across reruns (for benchmark comparison)
+                        # Store in session_state
                         st.session_state['backtest_engine'] = engine
                         st.session_state['backtest_metrics'] = metrics
                         st.session_state['backtest_start_date'] = start_date
                         st.session_state['backtest_end_date'] = end_date
                     
                     if metrics:
-                        # Prepare complete log data (no truncation)
+                        # Prepare complete log data
                         complete_log_data = prepare_complete_log_data(
                             {
                                 'name': f"Backtest_{datetime.datetime.now().strftime('%m%d_%H%M')}",
@@ -401,7 +396,7 @@ with main_tabs[0]:
                             engine
                         )
                         
-                        # Save to logs with complete data
+                        # Save to logs
                         backtest_log = {
                             'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                             'name': f"Backtest_{datetime.datetime.now().strftime('%m%d_%H%M')}",
@@ -412,9 +407,9 @@ with main_tabs[0]:
                             'monthly_returns': complete_log_data['monthly_returns']
                         }
                         st.session_state.backtest_logs.append(backtest_log)
-                        save_backtest_logs(st.session_state.backtest_logs)  # Save to file
+                        save_backtest_logs(st.session_state.backtest_logs)
                         
-                        # Store current backtest data in session_state for persistence
+                        # Store current backtest data
                         st.session_state['current_backtest'] = {
                             'engine': engine,
                             'metrics': metrics,
@@ -426,7 +421,7 @@ with main_tabs[0]:
                         
                         st.markdown("---")
                         
-                        # Action buttons - Excel and PDF downloads
+                        # Action buttons
                         col_h, col_excel, col_pdf = st.columns([3, 1, 1])
                         with col_h:
                             st.subheader("Backtest Results")
@@ -447,16 +442,16 @@ with main_tabs[0]:
                                 mime="application/pdf"
                             )
                         
-                        # Result tabs (Benchmark Comparison is now a standalone section below)
-                        result_tabs = st.tabs(["Performance Metrics", "Charts", "Monthly Breakup", "Monthly Report", "Trade History"])
+                        # Result tabs
+                        result_tabs = st.tabs(["Performance Metrics", "Charts", "Monthly Breakup", "Trade History"])
                         
                         with result_tabs[0]:
                             st.markdown("### Key Performance Indicators")
                             
                             kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
                             
-                            kpi_col1.metric("Final Value", f"₹{metrics['Final Value']:,.0f}")
-                            kpi_col1.metric("Total Return", f"₹{metrics['Total Return']:,.0f}")
+                            kpi_col1.metric("Final Value", f"${metrics['Final Value']:,.0f}")
+                            kpi_col1.metric("Total Return", f"${metrics['Total Return']:,.0f}")
                             kpi_col1.metric("Return %", f"{metrics['Return %']:.2f}%")
                             
                             kpi_col2.metric("CAGR %", f"{metrics['CAGR %']:.2f}%")
@@ -468,9 +463,9 @@ with main_tabs[0]:
                             kpi_col3.metric("Total Trades", metrics['Total Trades'])
                             
                             kpi_col4.metric("Avg Trade/Year", f"{metrics['Total Trades'] / max(1, (end_date - start_date).days / 365.25):.1f}")
-                            kpi_col4.metric("Expectancy", f"₹{metrics.get('Expectancy', 0):,.0f}")
+                            kpi_col4.metric("Expectancy", f"${metrics.get('Expectancy', 0):,.0f}")
                             
-                            # Additional Metrics Row
+                            # Advanced Metrics Row
                             st.markdown("---")
                             st.markdown("**📊 Advanced Metrics**")
                             adv_col1, adv_col2, adv_col3, adv_col4 = st.columns(4)
@@ -478,24 +473,15 @@ with main_tabs[0]:
                             adv_col1.metric("Max Consecutive Wins", metrics.get('Max Consecutive Wins', 0))
                             adv_col1.metric("Max Consecutive Losses", metrics.get('Max Consecutive Losses', 0))
                             
-                            adv_col2.metric("Avg Win", f"₹{metrics.get('Avg Win', 0):,.0f}")
-                            adv_col2.metric("Avg Loss", f"₹{metrics.get('Avg Loss', 0):,.0f}")
+                            adv_col2.metric("Avg Win", f"${metrics.get('Avg Win', 0):,.0f}")
+                            adv_col2.metric("Avg Loss", f"${metrics.get('Avg Loss', 0):,.0f}")
                             
                             adv_col3.metric("Days to Recover from DD", metrics.get('Days to Recover from DD', 0))
                             adv_col3.metric("Trades to Recover from DD", metrics.get('Trades to Recover from DD', 0))
                             
-                            adv_col4.metric("Total Turnover", f"₹{metrics.get('Total Turnover', 0):,.0f}")
-                            adv_col4.metric("Total Charges (Zerodha)", f"₹{metrics.get('Total Charges', 0):,.0f}")
-                            
-                            # Charges Breakdown Expander
-                            with st.expander("📋 Zerodha Charges Breakdown"):
-                                charges_col1, charges_col2 = st.columns(2)
-                                charges_col1.write(f"**STT/CTT (0.1%):** ₹{metrics.get('STT/CTT', 0):,.2f}")
-                                charges_col1.write(f"**Transaction Charges:** ₹{metrics.get('Transaction Charges', 0):,.2f}")
-                                charges_col1.write(f"**SEBI Charges:** ₹{metrics.get('SEBI Charges', 0):,.2f}")
-                                charges_col2.write(f"**Stamp Charges (0.015%):** ₹{metrics.get('Stamp Charges', 0):,.2f}")
-                                charges_col2.write(f"**GST (18%):** ₹{metrics.get('GST', 0):,.2f}")
-                                charges_col2.write(f"**Total Charges:** ₹{metrics.get('Total Charges', 0):,.2f}")
+                            adv_col4.metric("Total Turnover", f"${metrics.get('Total Turnover', 0):,.0f}")
+                            adv_col4.metric("Total Charges", f"${metrics.get('Total Charges', 0):,.0f}")
+                        
                         with result_tabs[1]:
                             st.markdown("### Performance Charts")
                             
@@ -505,13 +491,13 @@ with main_tabs[0]:
                                 x=engine.portfolio_df.index,
                                 y=engine.portfolio_df['Portfolio Value'],
                                 fill='tozeroy',
-                                line_color='#28a745',
+                                line_color='#007bff',
                                 name='Portfolio Value'
                             ))
                             fig_equity.update_layout(
                                 title="Equity Curve",
                                 xaxis_title="Date",
-                                yaxis_title="Portfolio Value (₹)",
+                                yaxis_title="Portfolio Value ($)",
                                 height=400,
                                 margin=dict(l=0,r=0,t=40,b=0),
                                 showlegend=False,
@@ -547,22 +533,17 @@ with main_tabs[0]:
                             if not engine.portfolio_df.empty:
                                 monthly_returns = engine.get_monthly_returns()
                                 if not monthly_returns.empty:
-                                    # Format the dataframe for display
                                     display_monthly = monthly_returns.copy()
 
-                                    # Format percentages with color coding
                                     def color_negative_red(val):
                                         if pd.isna(val):
                                             return ''
                                         color = '#28a745' if val > 0 else '#dc3545' if val < 0 else '#6c757d'
                                         return f'color: {color}; font-weight: 600'
 
-                                    # Apply styling
                                     styled_df = display_monthly.style.applymap(color_negative_red)
-
                                     st.dataframe(styled_df, use_container_width=True, height=400)
 
-                                    # Summary statistics
                                     st.markdown("---")
                                     col1, col2, col3, col4 = st.columns(4)
 
@@ -578,20 +559,8 @@ with main_tabs[0]:
                                 st.info("No data available for monthly breakdown")
 
                         with result_tabs[3]:
-                            st.markdown("### Monthly Portfolio Report")
-                            if not engine.portfolio_df.empty:
-                                monthly_df = engine.portfolio_df.copy()
-                                monthly_df['Year'] = monthly_df.index.year
-                                monthly_df['Month'] = monthly_df.index.month
-                                monthly_df['Day'] = monthly_df.index.day
-                                
-                                display_df = monthly_df[['Year', 'Month', 'Day', 'Portfolio Value', 'Cash', 'Positions']]
-                                st.dataframe(display_df, use_container_width=True, height=400)
-
-                        with result_tabs[4]:
                             st.markdown("### Trade History")
                             if not engine.trades_df.empty:
-                                # Create consolidated trade view matching BUY with SELL
                                 trades_df = engine.trades_df.copy()
                                 buy_trades = trades_df[trades_df['Action'] == 'BUY'].copy()
                                 sell_trades = trades_df[trades_df['Action'] == 'SELL'].copy()
@@ -602,7 +571,6 @@ with main_tabs[0]:
                                     ticker = sell['Ticker']
                                     sell_date = sell['Date']
                                     
-                                    # Find the most recent BUY for this ticker before this SELL
                                     prev_buys = buy_trades[
                                         (buy_trades['Ticker'] == ticker) & 
                                         (buy_trades['Date'] < sell_date)
@@ -616,7 +584,7 @@ with main_tabs[0]:
                                         roi = ((sell_price - buy_price) / buy_price) * 100
                                         
                                         consolidated_trades.append({
-                                            'Stock': ticker.replace('.NS', ''),
+                                            'Stock': ticker,
                                             'Buy Date': pd.to_datetime(buy['Date']).strftime('%Y-%m-%d'),
                                             'Buy Price': round(buy_price, 2),
                                             'Exit Date': pd.to_datetime(sell_date).strftime('%Y-%m-%d'),
@@ -628,7 +596,6 @@ with main_tabs[0]:
                                 if consolidated_trades:
                                     trade_display = pd.DataFrame(consolidated_trades)
                                     
-                                    # Color ROI column
                                     def color_roi(val):
                                         if val > 0:
                                             return 'color: #28a745; font-weight: bold'
@@ -641,7 +608,6 @@ with main_tabs[0]:
                                     )
                                     st.dataframe(styled_trades, use_container_width=True, height=400)
                                     
-                                    # Summary stats
                                     st.markdown("---")
                                     stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
                                     stat_col1.metric("Total Trades", len(consolidated_trades))
@@ -660,7 +626,7 @@ with main_tabs[0]:
                 else:
                     st.error("Data fetch failed")
     
-    # STANDALONE BENCHMARK COMPARISON - Persists across reruns using session_state
+    # BENCHMARK COMPARISON
     if st.session_state.get('current_backtest_active') and 'current_backtest' in st.session_state:
         st.markdown("---")
         st.subheader("📊 Benchmark Comparison")
@@ -670,55 +636,21 @@ with main_tabs[0]:
         bt_start = stored_data['start_date']
         bt_end = stored_data['end_date']
         
-        # Yahoo Finance index mappings - extensive list of available NSE indices
+        # US index mappings
         yahoo_index_map = {
-            # Major Indices
-            "NIFTY 50": "^NSEI",
-            "NIFTY NEXT 50": "^NSMIDCP",
-            "NIFTY 100": "^CNX100",
-            "NIFTY 200": "^CNX200",
-            "NIFTY 500": "^CRSLDX",
-            "NIFTY BANK": "^NSEBANK",
-            "NIFTY FIN SERVICE": "^CNXFIN",
-            "NIFTY IT": "^CNXIT",
-            # Midcap & Smallcap
-            "NIFTY MIDCAP 50": "^NIFTYMIDCAP50",
-            "NIFTY MIDCAP 100": "^CNXMDCP",
-            "NIFTY SMLCAP 50": "^NSMALLCAP50",
-            "NIFTY SMLCAP 100": "^CNXSC",
-            "NIFTY SMLCAP 250": "^NSMALLCAP250",
-            # Sectoral
-            "NIFTY AUTO": "^CNXAUTO",
-            "NIFTY PHARMA": "^CNXPHARMA",
-            "NIFTY PSE": "^CNXPSE",
-            "NIFTY REALTY": "^CNXREALTY",
-            "NIFTY INFRA": "^CNXINFRA",
-            "NIFTY ENERGY": "^CNXENERGY",
-            "NIFTY FMCG": "^CNXFMCG",
-            "NIFTY METAL": "^CNXMETAL",
-            "NIFTY COMMODITIES": "^CNXCMDT",
-            "NIFTY CONSUMPTION": "^CNXCONSUMD",
-            "NIFTY CPSE": "^CNXCPSE",
-            "NIFTY MEDIA": "^CNXMEDIA",
-            "NIFTY PRIVATE BANK": "^NIFTYPVTBANK",
-            "NIFTY PSU BANK": "^CNXPSUBANK",
-            # Thematic
-            "NIFTY MNC": "^CNXMNC",
-            "NIFTY SERV SECTOR": "^CNXSERVICE",
-            "NIFTY GROWSECT 15": "^NIFTYGROWSECT15",
-            "NIFTY100 QUALITY 30": "^NIFTYQUALLV30",
-            "NIFTY50 VALUE 20": "^NIFTY50VALUE20",
-            "NIFTY DIVIDEND OPPS 50": "^CNXDIVIDEND",
-            # Strategy
-            "NIFTY ALPHA 50": "^NIFTYALPHA50",
-            "NIFTY HIGH BETA 50": "^NIFTYHIGHBETA50",
-            "NIFTY LOW VOLATILITY 50": "^NIFTYLOWVOL50",
+            "S&P 500": "^GSPC",
+            "NASDAQ 100": "^NDX",
+            "NASDAQ Composite": "^IXIC",
+            "DOW 30": "^DJI",
+            "Russell 2000": "^RUT",
+            "S&P MidCap 400": "^MID",
+            "S&P SmallCap 600": "^SML",
+            "VIX": "^VIX",
         }
         
         benchmark_options = list(yahoo_index_map.keys())
         
-        # Get stored selection or default
-        stored_benchmark = st.session_state.get('benchmark_selection', 'NIFTY 50')
+        stored_benchmark = st.session_state.get('benchmark_selection', 'S&P 500')
         try:
             default_idx = benchmark_options.index(stored_benchmark)
         except ValueError:
@@ -734,7 +666,7 @@ with main_tabs[0]:
         
         try:
             import yfinance as yf
-            benchmark_ticker = yahoo_index_map.get(selected_benchmark, "^NSEI")
+            benchmark_ticker = yahoo_index_map.get(selected_benchmark, "^GSPC")
             benchmark_data = yf.download(benchmark_ticker, start=bt_start, end=bt_end, progress=False)
             
             if not benchmark_data.empty:
@@ -754,17 +686,10 @@ with main_tabs[0]:
                 
                 # PnL Comparison Chart
                 fig_pnl = go.Figure()
-                fig_pnl.add_trace(go.Scatter(x=portfolio_norm.index, y=portfolio_norm, name="Portfolio", line=dict(color="#28a745", width=2)))
-                fig_pnl.add_trace(go.Scatter(x=benchmark_norm.index, y=benchmark_norm, name=selected_benchmark, line=dict(color="#007bff", width=2)))
+                fig_pnl.add_trace(go.Scatter(x=portfolio_norm.index, y=portfolio_norm, name="Portfolio", line=dict(color="#007bff", width=2)))
+                fig_pnl.add_trace(go.Scatter(x=benchmark_norm.index, y=benchmark_norm, name=selected_benchmark, line=dict(color="#ffc107", width=2)))
                 fig_pnl.update_layout(title=f"Cumulative Returns: Portfolio vs {selected_benchmark}", xaxis_title="Date", yaxis_title="Return (%)", height=400, template="plotly_dark")
                 st.plotly_chart(fig_pnl, use_container_width=True)
-                
-                # Drawdown Comparison
-                fig_dd = go.Figure()
-                fig_dd.add_trace(go.Scatter(x=portfolio_dd.index, y=portfolio_dd, name="Portfolio DD", line=dict(color="#28a745", width=2), fill='tozeroy', fillcolor='rgba(40, 167, 69, 0.2)'))
-                fig_dd.add_trace(go.Scatter(x=benchmark_dd.index, y=benchmark_dd, name=f"{selected_benchmark} DD", line=dict(color="#007bff", width=2), fill='tozeroy', fillcolor='rgba(0, 123, 255, 0.2)'))
-                fig_dd.update_layout(title=f"Drawdown Comparison", xaxis_title="Date", yaxis_title="Drawdown (%)", height=400, template="plotly_dark")
-                st.plotly_chart(fig_dd, use_container_width=True)
                 
                 # Summary
                 col1, col2, col3, col4 = st.columns(4)
@@ -792,24 +717,20 @@ with main_tabs[1]:
     else:
         st.markdown(f"**Total Backtests:** {len(st.session_state.backtest_logs)}")
         
-        # Display logs in reverse chronological order
         for idx, log in enumerate(reversed(st.session_state.backtest_logs)):
             with st.expander(f"📊 {log['name']} - {log['timestamp']}"):
                 st.markdown(f"**Universe:** {log['config']['universe_name']}")
                 st.markdown(f"**Period:** {log['config']['start_date']} to {log['config']['end_date']}")
                 st.markdown(f"**Formula:** `{log['config']['formula']}`")
                 
-                # Key metrics - display vertically to avoid nested columns
                 metrics = log['metrics']
-                st.markdown(f"**Final Value:** ₹{metrics['Final Value']:,.0f} | **CAGR:** {metrics['CAGR %']:.2f}% | **Sharpe:** {metrics['Sharpe Ratio']:.2f} | **Win Rate:** {metrics['Win Rate %']:.1f}%")
+                st.markdown(f"**Final Value:** ${metrics['Final Value']:,.0f} | **CAGR:** {metrics['CAGR %']:.2f}% | **Sharpe:** {metrics['Sharpe Ratio']:.2f} | **Win Rate:** {metrics['Win Rate %']:.1f}%")
                 
-                # Show additional log info if available
                 if log.get('trades'):
                     st.caption(f"📈 {len(log['trades'])} trades recorded")
                 if log.get('portfolio_values'):
                     st.caption(f"📊 {len(log['portfolio_values'])} daily values stored")
                 
-                # Download buttons - Excel and PDF
                 dl_col1, dl_col2 = st.columns(2)
                 with dl_col1:
                     excel_data = create_excel_with_charts(log['config'], metrics)
@@ -830,29 +751,26 @@ with main_tabs[1]:
                         key=f"pdf_{idx}"
                     )
         
-        # Clear all logs button
         if st.button("🗑️ Clear All Logs"):
             st.session_state.backtest_logs = []
             st.session_state.backtest_engines = {}
-            save_backtest_logs([])  # Save empty list to file
-            st.experimental_rerun()
+            save_backtest_logs([])
+            st.rerun()
 
 # ==================== TAB 3: DATA DOWNLOAD ====================
 with main_tabs[2]:
     st.subheader("📥 Data Download")
-    st.markdown("Download historical data for all universes. This is a one-time setup - data will be cached for fast backtests.")
+    st.markdown("Download historical data for all US universes. This is a one-time setup - data will be cached for fast backtests.")
 
-    from portfolio_engine import DataCache
     cache = DataCache()
     cache_info = cache.get_cache_info()
 
-    # Show cache status
     col1, col2, col3 = st.columns([1, 1, 1])
     col1.metric("Cached Stocks", cache_info['total_files'])
     col2.metric("Storage Used", f"{cache_info['total_size_mb']:.2f} MB")
     
     with col3:
-        st.write("")  # Spacer
+        st.write("")
         if st.button("🗑️ Clear All Cache", type="secondary", key="clear_cache"):
             cache.clear()
             st.success("✅ Cache cleared! Please refresh the page.")
@@ -860,84 +778,13 @@ with main_tabs[2]:
 
     st.markdown("---")
     
-    # Refresh Universes from NSE
-    st.markdown("### 🔄 Refresh Universe Constituents")
-    st.info("Fetch live index constituents from NSE India. This updates the stock lists for all universes.")
-    
-    refresh_col1, refresh_col2 = st.columns([1, 3])
-    
-    with refresh_col1:
-        if st.button("🔄 Refresh Universes", type="secondary", key="refresh_universes"):
-            try:
-                from nse_fetcher import refresh_universes, load_from_cache
-                
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                def progress_callback(pct, msg):
-                    progress_bar.progress(pct)
-                    status_text.text(msg)
-                
-                success, message = refresh_universes(progress_callback)
-                
-                progress_bar.progress(1.0)
-                status_text.text("Complete!")
-                
-                if success:
-                    cached, timestamp = load_from_cache()
-                    st.success(f"✅ {message}. Cached at: {timestamp}")
-                    
-                    # Show summary - only for our specified indexes
-                    from nifty_universe import INDEX_NAMES
-                    with st.expander("Universe Summary"):
-                        for name in INDEX_NAMES:
-                            if name in cached:
-                                st.write(f"**{name}**: {len(cached[name])} stocks")
-                            else:
-                                st.write(f"**{name}**: Not in cache")
-                else:
-                    # Show cached data info even if refresh failed
-                    cached, timestamp = load_from_cache()
-                    if cached:
-                        st.warning(f"⚠️ Live refresh failed (NSE blocks cloud servers). Using cached data from: {timestamp} ({len(cached)} universes)")
-                    else:
-                        st.error(f"❌ {message}")
-            except Exception as e:
-                # Check if we have cached data to fall back to
-                try:
-                    from nse_fetcher import load_from_cache
-                    cached, timestamp = load_from_cache()
-                    if cached:
-                        st.warning(f"⚠️ NSE blocks cloud requests. Using pre-loaded cache: {timestamp} ({len(cached)} universes)")
-                    else:
-                        st.error(f"❌ Error refreshing: {e}. Run locally: python nse_fetcher.py")
-                except:
-                    st.error(f"❌ Error: {e}")
-    
-    with refresh_col2:
-        # Show current cache status
-        try:
-            from nifty_universe import INDEX_NAMES
-            from nse_fetcher import load_from_cache
-            cached, timestamp = load_from_cache()
-            st.write(f"📊 Active indexes: **{len(INDEX_NAMES)}**")
-            if cached and timestamp:
-                st.write(f"📅 Cache updated: **{timestamp}**")
-        except:
-            st.write("⚠️ Universe data not initialized.")
-    
-    st.markdown("---")
-
     # Download All Data Button
     st.markdown("### 🔽 Download All Universe Data")
-    st.info("This will download and cache data for ALL stocks across ALL universes. Takes ~10-15 minutes.")
+    st.info("This will download and cache data for ALL stocks across ALL US universes. Takes ~5-10 minutes.")
     
-    # Clear cache option
     col_clear, col_download = st.columns(2)
     with col_clear:
         if st.button("🗑️ Clear Cache First", key="clear_data_cache_btn"):
-            from portfolio_engine import DataCache
-            cache = DataCache()
             cache.clear()
             st.success("✅ Cache cleared! Now click 'Download All Data' to get fresh data.")
             st.rerun()
@@ -946,7 +793,6 @@ with main_tabs[2]:
         download_clicked = st.button("📥 Download All Data", type="primary", key="download_all_data_btn")
 
     if download_clicked:
-        # Get all unique tickers from all universes
         all_tickers = set()
         all_universe_names = get_all_universe_names()
 
@@ -958,7 +804,6 @@ with main_tabs[2]:
 
         st.markdown(f"### Downloading {len(all_tickers)} unique stocks...")
 
-        # Progress display
         progress_bar = st.progress(0)
         status_text = st.empty()
 
@@ -975,14 +820,14 @@ with main_tabs[2]:
             elapsed_secs = int(elapsed % 60)
 
             status_text.markdown(f"""
-            <div style="padding: 10px; background: rgba(0,255,136,0.1); border-radius: 5px;">
+            <div style="padding: 10px; background: rgba(0,123,255,0.1); border-radius: 5px;">
                 <div style="font-size: 16px; font-weight: bold;">📊 {ticker}</div>
                 <div>Progress: {current}/{total} ({pct*100:.1f}%)</div>
                 <div>⏱️ Remaining: {mins:02d}:{secs:02d} | ⏰ Elapsed: {elapsed_mins:02d}:{elapsed_secs:02d}</div>
             </div>
             """, unsafe_allow_html=True)
 
-        temp_engine = PortfolioEngine(all_tickers, datetime.date(2020, 1, 1), datetime.date.today())
+        temp_engine = USPortfolioEngine(all_tickers, datetime.date(2020, 1, 1), datetime.date.today())
         success_count = temp_engine.download_and_cache_universe(all_tickers, download_progress, None)
 
         progress_bar.empty()
@@ -991,5 +836,3 @@ with main_tabs[2]:
         total_time = time.time() - start_time
         st.success(f"✅ Downloaded {success_count}/{len(all_tickers)} stocks in {int(total_time)}s!")
         st.balloons()
-
-
