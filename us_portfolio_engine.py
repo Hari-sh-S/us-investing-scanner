@@ -746,49 +746,107 @@ class USPortfolioEngine:
         excess_return = (cagr / 100) - risk_free_rate
         sharpe = excess_return / (volatility / 100) if volatility > 0 else 0
         
-        # Win Rate
-        if not self.trades_df.empty:
-            buy_trades = self.trades_df[self.trades_df['Action'] == 'BUY']
-            sell_trades = self.trades_df[self.trades_df['Action'] == 'SELL']
-            
-            wins = 0
-            losses = 0
-            total_win = 0
-            total_loss = 0
-            
-            for _, sell in sell_trades.iterrows():
-                ticker = sell['Ticker']
-                sell_date = sell['Date']
-                
-                prev_buys = buy_trades[
-                    (buy_trades['Ticker'] == ticker) & 
-                    (buy_trades['Date'] < sell_date)
-                ]
-                
-                if not prev_buys.empty:
-                    buy = prev_buys.iloc[-1]
-                    buy_price = float(buy['Price'])
-                    sell_price = float(sell['Price'])
-                    
-                    if sell_price > buy_price:
-                        wins += 1
-                        total_win += (sell_price - buy_price) * int(buy['Shares'])
-                    else:
-                        losses += 1
-                        total_loss += (buy_price - sell_price) * int(buy['Shares'])
-            
-            total_trades = wins + losses
-            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
-            avg_win = total_win / wins if wins > 0 else 0
-            avg_loss = total_loss / losses if losses > 0 else 0
-            expectancy = (win_rate/100 * avg_win) - ((1-win_rate/100) * avg_loss)
-        else:
-            total_trades = 0
-            win_rate = 0
-            avg_win = 0
-            avg_loss = 0
-            expectancy = 0
+        # Win Rate and Trade Statistics
+        wins = 0
+        losses = 0
+        win_amounts = []
+        loss_amounts = []
+        max_consecutive_wins = 0
+        max_consecutive_losses = 0
+        current_streak = 0
+        last_was_win = None
+        total_trades = 0
         
+        if not self.trades_df.empty and 'Action' in self.trades_df.columns:
+            buy_trades = self.trades_df[self.trades_df['Action'] == 'BUY'].copy()
+            sell_trades = self.trades_df[self.trades_df['Action'] == 'SELL'].copy()
+            
+            if not sell_trades.empty:
+                for _, sell_row in sell_trades.iterrows():
+                    ticker = sell_row['Ticker']
+                    sell_date = sell_row['Date']
+                    sell_value = sell_row['Value']
+                    
+                    # Find previous BUY for this ticker
+                    prev_buys = buy_trades[(buy_trades['Ticker'] == ticker) & (buy_trades['Date'] < sell_date)]
+                    if not prev_buys.empty:
+                        buy_row = prev_buys.iloc[-1]
+                        buy_value = buy_row['Value']
+                        pnl = sell_value - buy_value
+                        
+                        total_trades += 1
+                        
+                        if pnl > 0:
+                            wins += 1
+                            win_amounts.append(pnl)
+                            if last_was_win == True:
+                                current_streak += 1
+                            else:
+                                current_streak = 1
+                            max_consecutive_wins = max(max_consecutive_wins, current_streak)
+                            last_was_win = True
+                        elif pnl < 0:
+                            losses += 1
+                            loss_amounts.append(abs(pnl))
+                            if last_was_win == False:
+                                current_streak += 1
+                            else:
+                                current_streak = 1
+                            max_consecutive_losses = max(max_consecutive_losses, current_streak)
+                            last_was_win = False
+            
+            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+        else:
+            win_rate = 0
+        
+        # Expectancy
+        avg_win = np.mean(win_amounts) if win_amounts else 0
+        avg_loss = np.mean(loss_amounts) if loss_amounts else 0
+        win_pct = wins / total_trades if total_trades > 0 else 0
+        loss_pct = losses / total_trades if total_trades > 0 else 0
+        expectancy = (win_pct * avg_win) - (loss_pct * avg_loss)
+        
+        # Drawdown Recovery Analysis
+        is_in_drawdown = portfolio_values < running_max
+        max_recovery_days = 0
+        max_recovery_trades = 0
+        
+        if is_in_drawdown.any():
+            drawdown_start = None
+            for i, (date, in_dd) in enumerate(is_in_drawdown.items()):
+                if in_dd and drawdown_start is None:
+                    drawdown_start = date
+                elif not in_dd and drawdown_start is not None:
+                    days_in_dd = (date - drawdown_start).days
+                    max_recovery_days = max(max_recovery_days, days_in_dd)
+                    
+                    if not self.trades_df.empty and 'Date' in self.trades_df.columns:
+                        trades_in_period = self.trades_df[
+                            (self.trades_df['Date'] >= drawdown_start) & 
+                            (self.trades_df['Date'] <= date)
+                        ]
+                        max_recovery_trades = max(max_recovery_trades, len(trades_in_period) // 2)
+                    
+                    drawdown_start = None
+        
+        # Total Turnover and SEC Fees (US market)
+        total_turnover = 0
+        total_buy_value = 0
+        total_sell_value = 0
+        
+        if not self.trades_df.empty and 'Action' in self.trades_df.columns:
+            buy_trades_vals = self.trades_df[self.trades_df['Action'] == 'BUY']
+            sell_trades_vals = self.trades_df[self.trades_df['Action'] == 'SELL']
+            total_buy_value = buy_trades_vals['Value'].sum() if not buy_trades_vals.empty else 0
+            total_sell_value = sell_trades_vals['Value'].sum() if not sell_trades_vals.empty else 0
+            total_turnover = total_buy_value + total_sell_value
+        
+        # SEC fees (US) - approximately $22.90 per $1M of sales
+        sec_fee = total_sell_value * 0.0000229
+        # FINRA TAF - $0.000119 per share (simplified estimate)
+        taf_fee = total_trades * 0.50  # Rough estimate
+        total_charges = sec_fee + taf_fee
+
         return {
             'Initial Capital': initial_value,
             'Final Value': final_value,
@@ -803,12 +861,12 @@ class USPortfolioEngine:
             'Avg Win': avg_win,
             'Avg Loss': avg_loss,
             'Expectancy': expectancy,
-            'Max Consecutive Wins': 0,
-            'Max Consecutive Losses': 0,
-            'Days to Recover from DD': 0,
-            'Trades to Recover from DD': 0,
-            'Total Turnover': 0,
-            'Total Charges': 0,
+            'Max Consecutive Wins': max_consecutive_wins,
+            'Max Consecutive Losses': max_consecutive_losses,
+            'Days to Recover from DD': max_recovery_days,
+            'Trades to Recover from DD': max_recovery_trades,
+            'Total Turnover': total_turnover,
+            'Total Charges': total_charges,
         }
 
     def get_monthly_returns(self):

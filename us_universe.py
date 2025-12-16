@@ -4,18 +4,18 @@
 
 # All US indices
 INDEX_NAMES = [
-    "S&P 500",
+    "S&P 500 Top 50",
     "NASDAQ 100",
     "DOW 30",
-    "Russell 2000",
-    "S&P MidCap 400",
-    "S&P SmallCap 600",
+    "Russell 2000 Top 100",
+    "S&P MidCap 400 Top 50",
+    "S&P SmallCap 600 Top 50",
     "S&P 500 Technology",
     "S&P 500 Healthcare",
     "S&P 500 Financials",
     "S&P 500 Consumer Discretionary",
     "S&P 500 Energy",
-    "NASDAQ Financial",
+    "NASDAQ Financial Top 10",
     "NYSE FANG+",
 ]
 
@@ -129,18 +129,18 @@ FANG_PLUS = [
 UNIVERSES = {name: [] for name in INDEX_NAMES}
 
 # Populate universes
-UNIVERSES["S&P 500"] = SP500_TOP_50  # Using top 50 for now
+UNIVERSES["S&P 500 Top 50"] = SP500_TOP_50
 UNIVERSES["NASDAQ 100"] = NASDAQ_100
 UNIVERSES["DOW 30"] = DOW_30
-UNIVERSES["Russell 2000"] = RUSSELL_2000_SAMPLE
-UNIVERSES["S&P MidCap 400"] = SP_MIDCAP_400_SAMPLE
-UNIVERSES["S&P SmallCap 600"] = SP_SMALLCAP_600_SAMPLE
+UNIVERSES["Russell 2000 Top 100"] = RUSSELL_2000_SAMPLE
+UNIVERSES["S&P MidCap 400 Top 50"] = SP_MIDCAP_400_SAMPLE
+UNIVERSES["S&P SmallCap 600 Top 50"] = SP_SMALLCAP_600_SAMPLE
 UNIVERSES["S&P 500 Technology"] = SP500_TECH
 UNIVERSES["S&P 500 Healthcare"] = SP500_HEALTHCARE
 UNIVERSES["S&P 500 Financials"] = SP500_FINANCIALS
 UNIVERSES["S&P 500 Consumer Discretionary"] = SP500_CONSUMER_DISC
 UNIVERSES["S&P 500 Energy"] = SP500_ENERGY
-UNIVERSES["NASDAQ Financial"] = ["JPM", "BAC", "WFC", "GS", "MS", "C", "USB", "PNC", "BK", "SCHW"]
+UNIVERSES["NASDAQ Financial Top 10"] = ["JPM", "BAC", "WFC", "GS", "MS", "C", "USB", "PNC", "BK", "SCHW"]
 UNIVERSES["NYSE FANG+"] = FANG_PLUS
 
 
@@ -157,8 +157,8 @@ def get_all_universe_names():
 def get_broad_market_universes():
     """Get broad market indices."""
     return [
-        "S&P 500", "NASDAQ 100", "DOW 30", "Russell 2000",
-        "S&P MidCap 400", "S&P SmallCap 600"
+        "S&P 500 Top 50", "NASDAQ 100", "DOW 30", "Russell 2000 Top 100",
+        "S&P MidCap 400 Top 50", "S&P SmallCap 600 Top 50"
     ]
 
 
@@ -173,7 +173,7 @@ def get_sectoral_universes():
 def get_cap_based_universes():
     """Get cap-based indices."""
     return [
-        "S&P 500", "S&P MidCap 400", "S&P SmallCap 600", "Russell 2000"
+        "S&P 500 Top 50", "S&P MidCap 400 Top 50", "S&P SmallCap 600 Top 50", "Russell 2000 Top 100"
     ]
 
 

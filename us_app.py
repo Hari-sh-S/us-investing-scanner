@@ -464,6 +464,23 @@ with main_tabs[0]:
                             
                             kpi_col4.metric("Avg Trade/Year", f"{metrics['Total Trades'] / max(1, (end_date - start_date).days / 365.25):.1f}")
                             kpi_col4.metric("Expectancy", f"${metrics.get('Expectancy', 0):,.0f}")
+                            
+                            # Advanced Metrics Row
+                            st.markdown("---")
+                            st.markdown("**📊 Advanced Metrics**")
+                            adv_col1, adv_col2, adv_col3, adv_col4 = st.columns(4)
+                            
+                            adv_col1.metric("Max Consecutive Wins", metrics.get('Max Consecutive Wins', 0))
+                            adv_col1.metric("Max Consecutive Losses", metrics.get('Max Consecutive Losses', 0))
+                            
+                            adv_col2.metric("Avg Win", f"${metrics.get('Avg Win', 0):,.0f}")
+                            adv_col2.metric("Avg Loss", f"${metrics.get('Avg Loss', 0):,.0f}")
+                            
+                            adv_col3.metric("Days to Recover from DD", metrics.get('Days to Recover from DD', 0))
+                            adv_col3.metric("Trades to Recover from DD", metrics.get('Trades to Recover from DD', 0))
+                            
+                            adv_col4.metric("Total Turnover", f"${metrics.get('Total Turnover', 0):,.0f}")
+                            adv_col4.metric("Total Charges", f"${metrics.get('Total Charges', 0):,.0f}")
                         
                         with result_tabs[1]:
                             st.markdown("### Performance Charts")
