@@ -4,17 +4,26 @@
 
 # All US indices
 INDEX_NAMES = [
+    # Market Cap Based
+    "Mega Cap (>$200B)",
+    "Large Cap ($10B-$200B)",
+    "Medium Cap ($2B-$10B)",
+    "Small Cap ($300M-$2B)",
+    "Micro Cap ($50M-$300M)",
+    # Index Based
     "S&P 500 Top 50",
     "NASDAQ 100",
     "DOW 30",
     "Russell 2000 Top 100",
     "S&P MidCap 400 Top 50",
     "S&P SmallCap 600 Top 50",
+    # Sector Based
     "S&P 500 Technology",
     "S&P 500 Healthcare",
     "S&P 500 Financials",
     "S&P 500 Consumer Discretionary",
     "S&P 500 Energy",
+    # Thematic
     "NASDAQ Financial Top 10",
     "NYSE FANG+",
 ]
@@ -125,21 +134,79 @@ FANG_PLUS = [
     "META", "AMZN", "NFLX", "GOOGL", "AAPL", "MSFT", "NVDA", "TSLA", "AMD", "AVGO"
 ]
 
+# =============================================================================
+# MARKET CAP BASED UNIVERSES
+# =============================================================================
+
+# Mega Cap (>$200B Market Cap)
+MEGA_CAP = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "LLY", "WMT",
+    "JPM", "V", "XOM", "MA", "JNJ", "ORCL", "COST", "HD", "AVGO", "PG",
+    "NFLX", "BAC", "ABBV", "CRM", "MRK", "CVX", "AMD", "PLTR", "KO", "PEP"
+]
+
+# Large Cap ($10B-$200B Market Cap)
+LARGE_CAP = [
+    "UNH", "CSCO", "TMO", "ABT", "MCD", "ACN", "DHR", "ADBE", "TXN", "QCOM",
+    "INTC", "VZ", "WFC", "CMCSA", "PM", "NEE", "BA", "RTX", "UNP", "HON",
+    "IBM", "AMGN", "LOW", "SBUX", "GE", "CAT", "BKNG", "PLD", "SPGI", "BLK",
+    "GS", "MS", "ISRG", "VRTX", "GILD", "MMM", "AXP", "SYK", "MDT", "REGN",
+    "ADP", "SCHW", "TJX", "CB", "DE", "LMT", "CI", "SO", "DUK", "ZTS"
+]
+
+# Medium Cap ($2B-$10B Market Cap)
+MEDIUM_CAP = [
+    "SNAP", "ROKU", "PINS", "ETSY", "RBLX", "U", "DKNG", "COIN", "HOOD", "AFRM",
+    "SQ", "SHOP", "ABNB", "DASH", "LYFT", "UBER", "RIVN", "LCID", "NIO", "XPEV",
+    "CHWY", "PTON", "FVRR", "UPWK", "ZM", "DOCU", "CRWD", "OKTA", "NET", "FSLY",
+    "DDOG", "SNOW", "MDB", "BILL", "HUBS", "TWLO", "ZS", "PANW", "FTNT", "TTD",
+    "MNST", "POOL", "WSM", "DPZ", "CMG", "WING", "TXRH", "EAT", "DRI", "BLMN"
+]
+
+# Small Cap ($300M-$2B Market Cap)
+SMALL_CAP = [
+    "SOFI", "UPST", "CLOV", "PLTR", "MARA", "RIOT", "BITF", "CLSK", "CIFR", "HUT",
+    "PLUG", "FCEL", "BLDP", "BE", "CHPT", "BLNK", "EVGO", "DCFC", "NKLA", "GOEV",
+    "SPCE", "RKLB", "ASTR", "LUNR", "RDW", "ASTS", "GSAT", "IRDM", "VSAT", "GOGO",
+    "AMC", "GME", "BBBY", "EXPR", "NAKD", "SNDL", "ACB", "TLRY", "CGC", "CRON",
+    "CRSP", "NTLA", "EDIT", "BEAM", "VERV", "MRNA", "BNTX", "NVAX", "OCGN", "VXRT"
+]
+
+# Micro Cap ($50M-$300M Market Cap)
+MICRO_CAP = [
+    "MULN", "FFIE", "WKHS", "RIDE", "FSR", "ARVL", "REE", "PSNY", "PTRA", "XOS",
+    "HYLN", "NKLA", "LEV", "ELMS", "GOEV", "SOLO", "AYRO", "WKSP", "CENN", "FREY",
+    "VUZI", "MVIS", "LAZR", "LIDR", "VLDR", "INVZ", "OUST", "CPTN", "AEVA", "AEYE",
+    "BYND", "TTCF", "APPH", "AGFY", "VFF", "GRWG", "HYFM", "SMG", "STKL", "VITL",
+    "SKLZ", "SLGG", "ESPO", "HEAR", "CRSR", "LOGI", "GPRO", "SONO", "KOSS", "VOXX"
+]
+
 # Universe dictionary
 UNIVERSES = {name: [] for name in INDEX_NAMES}
 
-# Populate universes
+# Populate universes - Market Cap Based
+UNIVERSES["Mega Cap (>$200B)"] = MEGA_CAP
+UNIVERSES["Large Cap ($10B-$200B)"] = LARGE_CAP
+UNIVERSES["Medium Cap ($2B-$10B)"] = MEDIUM_CAP
+UNIVERSES["Small Cap ($300M-$2B)"] = SMALL_CAP
+UNIVERSES["Micro Cap ($50M-$300M)"] = MICRO_CAP
+
+# Populate universes - Index Based
 UNIVERSES["S&P 500 Top 50"] = SP500_TOP_50
 UNIVERSES["NASDAQ 100"] = NASDAQ_100
 UNIVERSES["DOW 30"] = DOW_30
 UNIVERSES["Russell 2000 Top 100"] = RUSSELL_2000_SAMPLE
 UNIVERSES["S&P MidCap 400 Top 50"] = SP_MIDCAP_400_SAMPLE
 UNIVERSES["S&P SmallCap 600 Top 50"] = SP_SMALLCAP_600_SAMPLE
+
+# Populate universes - Sector Based
 UNIVERSES["S&P 500 Technology"] = SP500_TECH
 UNIVERSES["S&P 500 Healthcare"] = SP500_HEALTHCARE
 UNIVERSES["S&P 500 Financials"] = SP500_FINANCIALS
 UNIVERSES["S&P 500 Consumer Discretionary"] = SP500_CONSUMER_DISC
 UNIVERSES["S&P 500 Energy"] = SP500_ENERGY
+
+# Populate universes - Thematic
 UNIVERSES["NASDAQ Financial Top 10"] = ["JPM", "BAC", "WFC", "GS", "MS", "C", "USB", "PNC", "BK", "SCHW"]
 UNIVERSES["NYSE FANG+"] = FANG_PLUS
 
