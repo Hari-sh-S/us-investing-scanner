@@ -17,8 +17,8 @@ print("\n[1] Testing module imports...")
 try:
     from scoring import ScoreParser
     from indicators import IndicatorLibrary
-    from portfolio_engine import PortfolioEngine, DataCache
-    from nifty_universe import INDEX_NAMES, get_universe
+    from us_portfolio_engine import USPortfolioEngine, DataCache
+    from us_universe import INDEX_NAMES, get_universe
     print("   [OK] All modules imported successfully")
 except Exception as e:
     print(f"   [FAIL] Import failed: {e}")
@@ -127,7 +127,7 @@ except Exception as e:
 # Test 4: Universe definitions
 print("\n[4] Testing universe definitions...")
 print(f"   Total indexes defined: {len(INDEX_NAMES)}")
-sample_universes = ['NIFTY 50', 'NIFTY 100', 'NIFTY BANK']
+sample_universes = ['S&P 500 Top 50', 'NASDAQ 100', 'DOW 30']
 for uni in sample_universes:
     stocks = get_universe(uni)
     if stocks:
@@ -144,11 +144,11 @@ print(f"   Cache: {info['total_files']} files, {info['total_size_mb']:.2f} MB")
 # Test 6: Quick backtest simulation
 print("\n[6] Testing backtest with mock data...")
 try:
-    # Use a small universe for testing
-    test_tickers = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK']
+    # Use a small universe for testing - US stocks
+    test_tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA']
     
     # Create engine
-    engine = PortfolioEngine(
+    engine = USPortfolioEngine(
         test_tickers,
         datetime.date(2024, 1, 1),
         datetime.date(2024, 12, 31),
@@ -203,8 +203,8 @@ try:
     
     # Test metrics
     metrics = engine.get_metrics()
-    if metrics and 'Total Return %' in metrics:
-        print(f"   [OK] Metrics calculated: Return {metrics['Total Return %']:.1f}%, Sharpe {metrics.get('Sharpe Ratio', 0):.2f}")
+    if metrics and 'Return %' in metrics:
+        print(f"   [OK] Metrics calculated: Return {metrics['Return %']:.1f}%, Sharpe {metrics.get('Sharpe Ratio', 0):.2f}")
     else:
         print("   [FAIL] Metrics calculation failed")
     

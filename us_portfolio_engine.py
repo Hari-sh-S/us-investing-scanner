@@ -432,62 +432,82 @@ class USPortfolioEngine:
         print(f"Generated {len(rebalance_dates)} rebalance dates from {len(all_dates)} trading days")
         return sorted(rebalance_dates)
 
-    def _check_regime_filter(self, date, regime_config, realized_pnl=0):
-        """Check if regime filter is triggered on rebalance day."""
+    def _check_regime_filter(self, date, regime_config, current_equity=0, peak_equity=0):
+        """Check if regime filter is triggered.
+
+        For EQUITY type: checks drawdown from peak equity
+        For EQUITY_MA type: handled in main loop (checks equity curve MA)
+        For other types: checks technical indicators on index
+
+        Returns: (triggered: bool, action: str, drawdown_pct: float)
+        """
         if not regime_config:
-            return False, 'none'
-        
+            return False, 'none', 0.0
+
         regime_type = regime_config['type']
-        
+
         if regime_type == 'EQUITY':
+            # Check drawdown from peak equity
             sl_pct = regime_config['value']
-            if realized_pnl < -sl_pct:
-                return True, regime_config['action']
-            return False, 'none'
-        
+            if peak_equity > 0:
+                drawdown_pct = ((peak_equity - current_equity) / peak_equity) * 100
+            else:
+                drawdown_pct = 0.0
+
+            if drawdown_pct > sl_pct:
+                return True, regime_config['action'], drawdown_pct
+            return False, 'none', drawdown_pct
+
+        if regime_type == 'EQUITY_MA':
+            # EQUITY_MA is handled separately in the main loop
+            # This is just a placeholder - actual check done in run_rebalance_strategy
+            return False, 'none', 0.0
+
+        # For EMA, MACD, SUPERTREND - need index data
         if self.regime_index_data is None or self.regime_index_data.empty:
-            return False, 'none'
-        
+            return False, 'none', 0.0
+
+        # Use nearest available date if exact date not found (handles holidays)
         if date not in self.regime_index_data.index:
             nearest = self.regime_index_data.index.asof(date)
             if pd.isna(nearest):
-                return False, 'none'
+                return False, 'none', 0.0
             row = self.regime_index_data.loc[nearest]
         else:
             row = self.regime_index_data.loc[date]
-        
+
         def get_scalar(val):
             if hasattr(val, 'iloc'):
                 return float(val.iloc[0])
             return float(val) if val is not None else 0.0
-        
+
         if regime_type == 'EMA':
             ema_period = regime_config['value']
             ema_col = f'EMA_{ema_period}'
             close_price = get_scalar(row.get('Close', 0))
             ema_value = get_scalar(row.get(ema_col, 0))
-            
+
             triggered = ema_col in row.index and ema_value > 0 and close_price < ema_value
-            
+
             if triggered:
-                return True, regime_config['action']
-        
+                return True, regime_config['action'], 0.0
+
         elif regime_type == 'MACD':
             macd_val = get_scalar(row.get('MACD', 0))
             signal_val = get_scalar(row.get('MACD_Signal', 0))
             triggered = macd_val < signal_val
             if triggered:
-                return True, regime_config['action']
-        
+                return True, regime_config['action'], 0.0
+
         elif regime_type == 'SUPERTREND':
             st_direction = row.get('Supertrend_Direction', 'BUY')
             if hasattr(st_direction, 'iloc'):
                 st_direction = st_direction.iloc[0]
             triggered = st_direction == 'SELL'
             if triggered:
-                return True, regime_config['action']
-        
-        return False, 'none'
+                return True, regime_config['action'], 0.0
+
+        return False, 'none', 0.0
 
     def run_rebalance_strategy(self, scoring_formula, num_stocks, exit_rank, 
                               rebal_config, regime_config=None, uncorrelated_config=None, reinvest_profits=True):
@@ -503,8 +523,8 @@ class USPortfolioEngine:
         
         self.calculate_indicators_for_formula(scoring_formula, regime_config)
         
-        # Load regime filter index data if needed
-        if regime_config and regime_config['type'] != 'EQUITY':
+        # Load regime filter index data if needed (not for EQUITY or EQUITY_MA)
+        if regime_config and regime_config['type'] not in ['EQUITY', 'EQUITY_MA']:
             regime_index = regime_config['index']
             # Map universe names to Yahoo Finance tickers for US indices
             index_map = {
@@ -538,8 +558,23 @@ class USPortfolioEngine:
         portfolio_history = []
         regime_active = False
         regime_cash_reserve = 0
-        realized_pnl_running = 0
         last_known_prices = {}
+        
+        # EQUITY regime filter tracking
+        is_equity_regime = regime_config and regime_config['type'] == 'EQUITY'
+        is_equity_ma_regime = regime_config and regime_config['type'] == 'EQUITY_MA'
+        peak_equity = self.initial_capital
+        equity_regime_active = False  # True when drawdown exceeds threshold, waiting for recovery
+        equity_sl_pct = regime_config['value'] if is_equity_regime else 0
+        # Recovery threshold - defaults to same as trigger if not specified
+        recovery_dd_pct = regime_config.get('recovery_dd', equity_sl_pct) if is_equity_regime else 0
+        if recovery_dd_pct is None or recovery_dd_pct >= equity_sl_pct:
+            recovery_dd_pct = equity_sl_pct  # Fallback to same as trigger
+        self.regime_trigger_events = []
+        
+        # EQUITY_MA tracking
+        equity_ma_period = regime_config.get('ma_period', 50) if is_equity_ma_regime else 50
+        equity_values_history = []  # Track equity values for MA calculation
         
         for date in all_dates:
             is_rebalance = date in rebalance_dates
@@ -568,7 +603,63 @@ class USPortfolioEngine:
                 else:
                     investable_capital = min(float(cash), self.initial_capital)
                 
-                regime_triggered, regime_action = self._check_regime_filter(date, regime_config, realized_pnl_running)
+                # Check regime filter with current equity state
+                current_equity = investable_capital
+                
+                # Handle EQUITY regime with recovery logic
+                if is_equity_regime:
+                    # Update peak equity
+                    if current_equity > peak_equity:
+                        peak_equity = current_equity
+                    
+                    regime_triggered, regime_action, drawdown_pct = self._check_regime_filter(
+                        date, regime_config, current_equity=current_equity, peak_equity=peak_equity
+                    )
+                    
+                    if regime_triggered and not equity_regime_active:
+                        # Trigger regime filter
+                        equity_regime_active = True
+                        self.regime_trigger_events.append({
+                            'date': date,
+                            'type': 'trigger',
+                            'drawdown': drawdown_pct,
+                            'current': current_equity,
+                            'peak': peak_equity
+                        })
+                    elif equity_regime_active:
+                        # Check for recovery
+                        if drawdown_pct <= recovery_dd_pct:
+                            equity_regime_active = False
+                            self.regime_trigger_events.append({
+                                'date': date,
+                                'type': 'recovery',
+                                'drawdown': drawdown_pct,
+                                'current': current_equity,
+                                'peak': peak_equity
+                            })
+                            regime_triggered = False
+                        else:
+                            # Still in drawdown, keep filter active
+                            regime_triggered = True
+                    
+                # Handle EQUITY_MA regime
+                elif is_equity_ma_regime:
+                    # Calculate equity curve MA
+                    equity_values_history.append(current_equity)
+                    if len(equity_values_history) >= equity_ma_period:
+                        equity_ma = sum(equity_values_history[-equity_ma_period:]) / equity_ma_period
+                        regime_triggered = current_equity < equity_ma
+                        regime_action = regime_config['action'] if regime_triggered else 'none'
+                    else:
+                        regime_triggered = False
+                        regime_action = 'none'
+                    drawdown_pct = 0.0
+                    
+                else:
+                    # Other regime types (EMA, MACD, SUPERTREND)
+                    regime_triggered, regime_action, drawdown_pct = self._check_regime_filter(
+                        date, regime_config, current_equity=current_equity, peak_equity=peak_equity
+                    )
                 
                 stocks_target = 0.0
                 uncorrelated_target = 0.0

@@ -202,66 +202,88 @@ with main_tabs[0]:
                                      index=1,
                                      help="If rebalance day is holiday, use this option")
         
-        st.markdown("**Regime Filter**")
-        use_regime_filter = st.checkbox("Enable Regime Filter", value=False)
-        
-        regime_config = None
-        if use_regime_filter:
-            regime_type = st.selectbox("Regime Filter Type", 
-                                      ["EMA", "MACD", "SUPERTREND", "EQUITY"])
+        # ===== REGIME FILTER (in expander) =====
+        with st.expander("🛡️ Regime Filter", expanded=False):
+            use_regime_filter = st.checkbox("Enable Regime Filter", value=False)
             
-            if regime_type == "EMA":
-                ema_period = st.selectbox("EMA Period", [34, 68, 100, 150, 200])
-                regime_value = ema_period
-            elif regime_type == "MACD":
-                macd_preset = st.selectbox("MACD Settings", 
-                                          ["35-70-12", "50-100-15", "75-150-12"])
-                regime_value = macd_preset
-            elif regime_type == "SUPERTREND":
-                st_preset = st.selectbox("SuperTrend (Period-Multiplier)", 
-                                        ["1-1", "1-2", "1-2.5"])
-                regime_value = st_preset
-            else:  # EQUITY
-                realized_sl = st.number_input("Realized PnL SL %", 1, 50, 10)
-                regime_value = realized_sl
-            
-            # Regime action (only for non-EQUITY)
-            if regime_type != "EQUITY":
+            regime_config = None
+            if use_regime_filter:
+                regime_type = st.selectbox("Regime Filter Type", 
+                                          ["EMA", "MACD", "SUPERTREND", "EQUITY", "EQUITY_MA"],
+                                          help="EQUITY_MA: Uses moving average of your equity curve")
+                
+                # Initialize defaults
+                recovery_dd = None
+                ma_period = None
+                
+                if regime_type == "EMA":
+                    ema_period = st.selectbox("EMA Period", [34, 68, 100, 150, 200])
+                    regime_value = ema_period
+                elif regime_type == "MACD":
+                    macd_preset = st.selectbox("MACD Settings", 
+                                              ["35-70-12", "50-100-15", "75-150-12"])
+                    regime_value = macd_preset
+                elif regime_type == "SUPERTREND":
+                    st_preset = st.selectbox("SuperTrend (Period-Multiplier)", 
+                                            ["1-1", "1-2", "1-2.5"])
+                    regime_value = st_preset
+                elif regime_type == "EQUITY":
+                    eq_col1, eq_col2 = st.columns(2)
+                    with eq_col1:
+                        realized_sl = st.number_input("DD SL % (Trigger)", 1, 50, 10,
+                                                      help="Sell when drawdown exceeds this %")
+                    with eq_col2:
+                        recovery_dd = st.number_input("Recovery DD %", 0, 49, 5,
+                                                      help="Re-enter when drawdown below this %")
+                    regime_value = realized_sl
+                else:  # EQUITY_MA
+                    ma_period = st.selectbox("Equity Curve MA Period", 
+                                            [20, 30, 50, 100, 200],
+                                            index=2,
+                                            help="Reduce exposure when equity falls below this MA")
+                    regime_value = ma_period
+                
+                # Regime action
                 regime_action = st.selectbox("Regime Filter Action",
-                                            ["Half Portfolio", "Go Cash"])
+                                            ["Go Cash", "Half Portfolio"],
+                                            help="Action when regime filter triggers")
                 
-                # Index selection for regime filter - US indices
-                regime_indices = ["S&P 500", "NASDAQ 100", "DOW 30", "Russell 2000", "VIX"]
-                regime_index = st.selectbox("Regime Filter Index", regime_indices)
-            else:
-                regime_action = "Half Portfolio"
-                regime_index = None
-            
-            regime_config = {
-                'type': regime_type,
-                'value': regime_value,
-                'action': regime_action,
-                'index': regime_index
-            }
-            
-            # Uncorrelated Asset - ONLY when regime filter is enabled
-            st.markdown("**Uncorrelated Asset**")
-            use_uncorrelated = st.checkbox("Invest in Uncorrelated Asset", value=False,
-                                          help="Allocate to uncorrelated asset when regime filter triggers")
-            
-            uncorrelated_config = None
-            if use_uncorrelated:
-                asset_type = st.text_input("Asset Type", "GLD",
-                                          help="Enter ticker symbol (e.g., GLD for Gold ETF, TLT for Bonds)")
-                allocation_pct = st.number_input("Allocation %", 1, 100, 20,
-                                                help="% of portfolio value to allocate when regime triggers")
+                # Index selection (only for non-EQUITY types)
+                if regime_type not in ["EQUITY", "EQUITY_MA"]:
+                    regime_indices = ["S&P 500", "NASDAQ 100", "DOW 30", "Russell 2000", "VIX"]
+                    regime_index = st.selectbox("Regime Filter Index", regime_indices)
+                else:
+                    regime_index = None
                 
-                uncorrelated_config = {
-                    'asset': asset_type,
-                    'allocation_pct': allocation_pct
+                regime_config = {
+                    'type': regime_type,
+                    'value': regime_value,
+                    'action': regime_action,
+                    'index': regime_index,
+                    'recovery_dd': recovery_dd,
+                    'ma_period': ma_period if regime_type == "EQUITY_MA" else None
                 }
-        else:
-            uncorrelated_config = None
+                
+                # Uncorrelated Asset
+                st.markdown("---")
+                use_uncorrelated = st.checkbox("Invest in Uncorrelated Asset", value=False,
+                                              help="Allocate to uncorrelated asset when regime triggers")
+                
+                uncorrelated_config = None
+                if use_uncorrelated:
+                    unc_col1, unc_col2 = st.columns(2)
+                    with unc_col1:
+                        asset_type = st.text_input("Asset Ticker", "GLD",
+                                                  help="e.g., GLD for Gold ETF, TLT for Bonds")
+                    with unc_col2:
+                        allocation_pct = st.number_input("Alloc %", 1, 100, 100)
+                    
+                    uncorrelated_config = {
+                        'asset': asset_type,
+                        'allocation_pct': allocation_pct
+                    }
+            else:
+                uncorrelated_config = None
     
     with col_scoring:
         st.subheader("Scoring Console")
@@ -280,6 +302,33 @@ with main_tabs[0]:
         else:
             st.error("❌ " + msg)
         
+        # Compact metrics reference in collapsible expander
+        with st.expander("📖 Available Metrics", expanded=False):
+            st.caption("💡 **Tip:** Use periods 1-12 months, e.g. `7 Month Performance`, `10 Month Sharpe`")
+            
+            metric_groups = parser.metric_groups if hasattr(parser, 'metric_groups') else {}
+            
+            perf = metric_groups.get('Performance', [])
+            st.markdown("**Performance:** " + " • ".join(perf[:3]) + "...")
+            
+            vol = metric_groups.get('Volatility', [])
+            st.markdown("**Volatility:** " + " • ".join(vol[:3]) + "...")
+            
+            dsv = metric_groups.get('Downside Volatility', [])
+            if dsv:
+                st.markdown("**Downside Vol:** " + " • ".join(dsv[:3]) + "...")
+            
+            mdd = metric_groups.get('Max Drawdown', [])
+            if mdd:
+                st.markdown("**Max Drawdown:** " + " • ".join(mdd[:3]) + "...")
+            
+            sharpe = metric_groups.get('Sharpe Ratio', [])[:2]
+            sortino = metric_groups.get('Sortino Ratio', [])[:2]
+            calmar = metric_groups.get('Calmar Ratio', [])[:2]
+            risk_adj = sharpe + sortino + calmar
+            if risk_adj:
+                st.markdown("**Risk-Adjusted:** " + " • ".join(risk_adj[:4]) + "...")
+        
         st.markdown("---")
         run_btn = st.button("🚀 Run Backtest", type="primary")
     
@@ -291,6 +340,10 @@ with main_tabs[0]:
         
         st.markdown("**Volatility**")
         for m in ["1 Month Volatility", "3 Month Volatility", "6 Month Volatility"]:
+            st.caption(m)
+        
+        st.markdown("**Downside Volatility**")
+        for m in ["3 Month Downside Volatility", "6 Month Downside Volatility"]:
             st.caption(m)
         
         st.markdown("**Risk-Adjusted**")

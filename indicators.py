@@ -94,6 +94,10 @@ class IndicatorLibrary:
             # 2. Volatility - vectorized
             df[f'{name} Volatility'] = daily_returns.rolling(window).std() * np.sqrt(252)
             
+            # 2b. Downside Volatility - uses only negative returns
+            downside_returns = daily_returns.clip(upper=0)
+            df[f'{name} Downside Volatility'] = downside_returns.rolling(window).std() * np.sqrt(252)
+            
             # 3. Max Drawdown - vectorized
             rolling_max = close.rolling(window).max()
             drawdown = (close - rolling_max) / rolling_max
