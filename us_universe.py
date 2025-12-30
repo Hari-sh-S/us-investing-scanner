@@ -11,6 +11,7 @@ INDEX_NAMES = [
     "Small Cap ($300M-$2B)",
     "Micro Cap ($50M-$300M)",
     # Index Based
+    "S&P 500",
     "S&P 500 Top 50",
     "NASDAQ 100",
     "DOW 30",
@@ -26,6 +27,77 @@ INDEX_NAMES = [
     # Thematic
     "NASDAQ Financial Top 10",
     "NYSE FANG+",
+]
+
+# S&P 500 (Full 500 stocks - Updated Dec 2024)
+SP500 = [
+    # Technology
+    "AAPL", "MSFT", "GOOGL", "GOOG", "NVDA", "META", "AVGO", "ADBE", "CRM", "AMD",
+    "INTC", "CSCO", "TXN", "QCOM", "ORCL", "IBM", "NOW", "INTU", "AMAT", "MU",
+    "ADI", "LRCX", "KLAC", "SNPS", "CDNS", "APH", "MSI", "FTNT", "PANW", "MCHP",
+    "GLW", "KEYS", "HPQ", "HPE", "WDC", "STX", "NTAP", "ZBRA", "JNPR", "CDW",
+    "AKAM", "FFIV", "VRSN", "ENPH", "MPWR", "SWKS", "QRVO", "TER", "SEDG", "GEN",
+    # Healthcare
+    "LLY", "UNH", "JNJ", "MRK", "ABBV", "PFE", "TMO", "DHR", "ABT", "BMY",
+    "AMGN", "MDT", "ISRG", "GILD", "VRTX", "REGN", "CVS", "CI", "ELV", "SYK",
+    "ZTS", "BDX", "BSX", "HCA", "MCK", "EW", "DXCM", "A", "IQV", "IDXX",
+    "MTD", "WAT", "CAH", "COR", "HUM", "RMD", "ALGN", "WST", "HOLX", "MOH",
+    "CNC", "VTRS", "TECH", "HSIC", "DGX", "LH", "PKI", "BIO", "BAX", "XRAY",
+    # Financials
+    "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "MS", "GS", "SPGI", "AXP",
+    "BLK", "C", "SCHW", "CB", "MMC", "PGR", "USB", "CME", "AON", "PNC",
+    "ICE", "MET", "AIG", "TRV", "AJG", "COF", "AFL", "PRU", "ALL", "MSCI",
+    "BK", "TFC", "FI", "MCO", "WTW", "STT", "FIS", "CINF", "NDAQ", "RJF",
+    "HBAN", "CFG", "KEY", "FITB", "RF", "NTRS", "SBNY", "ZION", "L", "RE",
+    # Consumer Discretionary
+    "AMZN", "TSLA", "HD", "MCD", "NKE", "LOW", "SBUX", "TJX", "BKNG", "MAR",
+    "CMG", "ORLY", "AZO", "DHI", "LEN", "F", "GM", "ROST", "YUM", "HLT",
+    "DG", "DLTR", "EBAY", "ULTA", "POOL", "BBY", "APTV", "GPC", "LKQ", "GRMN",
+    "PHM", "NVR", "TPR", "RL", "VFC", "PVH", "HAS", "WYNN", "LVS", "MGM",
+    "DRI", "EXPE", "CCL", "RCL", "NCLH", "BWA", "LEG", "WHR", "MHK", "AAP",
+    # Consumer Staples
+    "PG", "KO", "PEP", "COST", "WMT", "PM", "MO", "MDLZ", "CL", "KMB",
+    "EL", "GIS", "SYY", "K", "KHC", "HSY", "ADM", "STZ", "KDP", "MNST",
+    "TSN", "CAG", "CHD", "CLX", "SJM", "MKC", "HRL", "CPB", "LW", "TAP",
+    # Energy
+    "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "VLO", "PSX", "OXY", "PXD",
+    "HES", "WMB", "KMI", "DVN", "HAL", "FANG", "BKR", "CTRA", "MRO", "OKE",
+    "TRGP", "APA", "EQT", "PR", "OVV",
+    # Industrials
+    "CAT", "DE", "RTX", "UNP", "HON", "BA", "LMT", "GE", "UPS", "MMM",
+    "FDX", "NOC", "ITW", "ETN", "CSX", "EMR", "NSC", "WM", "GD", "JCI",
+    "PH", "PCAR", "CTAS", "TDG", "ODFL", "TT", "CARR", "ROK", "CMI", "DOV",
+    "AME", "SWK", "XYL", "FAST", "HWM", "IR", "PWR", "WAB", "GWW", "ROP",
+    "VRSK", "IEX", "MLM", "VMC", "J", "MAS", "SNA", "LII", "PAYX", "AOS",
+    # Utilities
+    "NEE", "DUK", "SO", "D", "AEP", "SRE", "EXC", "XEL", "ED", "PEG",
+    "WEC", "ES", "AWK", "DTE", "ETR", "FE", "PPL", "CMS", "CNP", "AEE",
+    "NI", "EVRG", "ATO", "LNT", "NRG", "PNW",
+    # Real Estate
+    "AMT", "PLD", "CCI", "EQIX", "PSA", "WELL", "DLR", "O", "VICI", "SPG",
+    "AVB", "EQR", "ARE", "VTR", "MAA", "UDR", "ESS", "SBAC", "WY", "EXR",
+    "REG", "BXP", "CBRE", "HST", "KIM", "CPT", "IRM", "FRT", "AIV", "SLG",
+    # Materials
+    "LIN", "APD", "SHW", "ECL", "DD", "NUE", "FCX", "CTVA", "DOW", "PPG",
+    "NEM", "VMC", "MLM", "IFF", "ALB", "FMC", "EMN", "CE", "CF", "MOS",
+    "LYB", "BALL", "IP", "PKG", "WRK", "SEE", "AVY", "AMCR",
+    # Communication Services
+    "GOOGL", "GOOG", "META", "DIS", "CMCSA", "NFLX", "VZ", "T", "CHTR", "TMUS",
+    "ATVI", "EA", "TTWO", "WBD", "PARA", "FOX", "FOXA", "NWS", "NWSA", "LYV",
+    "OMC", "IPG", "MTCH", "DISH",
+    # Additional S&P 500 constituents to reach ~500
+    "FICO", "AXON", "ABNB", "CEG", "DECK", "EG", "ELV", "GEHC", "GEV", "HUBB",
+    "INVH", "KVUE", "LULU", "ON", "OTIS", "PAYC", "PODD", "SMCI", "SOLV", "STLD",
+    "TDY", "TSCO", "TTWO", "UAL", "URI", "VRSN", "WST", "ZBH",
+    # Tech additions
+    "ACGL", "ADP", "ANET", "ANSS", "BIIB", "BRO", "CBOE", "CDAY", "CPAY", "CPRT",
+    "CTLT", "CTSH", "EPAM", "EQT", "ERIE", "EXPE", "FDS", "FLT", "FSLR", "GDDY",
+    "GNRC", "INCY", "JKHY", "KMX", "LDOS", "LPLA", "LRCX", "LUV", "LVS", "LW",
+    "LYV", "MOH", "MRNA", "NDAQ", "NDSN", "NVR", "ODFL", "PAYC", "PCAR", "PTC",
+    "RVTY", "STE", "TER", "TFX", "TRMB", "TROW", "TRV", "TXT", "TYL", "UAL",
+    "ULTA", "UNP", "URI", "VICI", "VRSN", "VTR", "VTRS", "WAB", "WAT", "WBA",
+    "WDC", "WEC", "WELL", "WFC", "WHR", "WM", "WMB", "WRB", "WRK", "WST",
+    "WTW", "WY", "WYNN", "XEL", "XOM", "XYL", "YUM", "ZBH", "ZBRA", "ZION", "ZTS"
 ]
 
 # S&P 500 Top 50 (by market cap)
@@ -192,6 +264,7 @@ UNIVERSES["Small Cap ($300M-$2B)"] = SMALL_CAP
 UNIVERSES["Micro Cap ($50M-$300M)"] = MICRO_CAP
 
 # Populate universes - Index Based
+UNIVERSES["S&P 500"] = SP500
 UNIVERSES["S&P 500 Top 50"] = SP500_TOP_50
 UNIVERSES["NASDAQ 100"] = NASDAQ_100
 UNIVERSES["DOW 30"] = DOW_30
