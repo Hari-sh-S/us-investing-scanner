@@ -714,7 +714,7 @@ class USPortfolioEngine:
                         proceeds = shares * sell_price
                         cash += proceeds
                         
-                self.trades.append({
+                        self.trades.append({
                             'Date': date,
                             'Ticker': ticker,
                             'Action': 'SELL',
