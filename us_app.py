@@ -137,24 +137,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Header
-col_title, col_actions = st.columns([3, 1])
-with col_title:
-    st.title("🇺🇸 US Investing Scanner")
-    st.caption("Advanced Backtesting for US Stock Market")
+# Header - compact with last git commit timestamp
+def get_last_update_time():
+    """Get last git commit timestamp"""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['git', 'log', '-1', '--format=%cd', '--date=format:%d %b %H:%M'],
+            capture_output=True, text=True, cwd='.'
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() + " ET"
+    except:
+        pass
+    return "Unknown"
 
-st.markdown("---")
+last_update = get_last_update_time()
+st.markdown(f"### 🇺🇸 US Investing Scanner <span style='font-size: 14px; color: #888;'>Updated: {last_update}</span>", unsafe_allow_html=True)
 
 # Main Tabs
 main_tabs = st.tabs(["Backtest", "Backtest Logs", "Data Download"])
 
 # ==================== TAB 1: BACKTEST ====================
 with main_tabs[0]:
-    col_config, col_scoring, col_metrics = st.columns([1.2, 2, 1])
+    col_config, col_scoring = st.columns([1, 1.2])
     
     with col_config:
         st.subheader("Configuration")
         
+        # ===== BASIC SETTINGS (always visible) =====
         st.markdown("**Universe**")
         
         # Get all available universes
@@ -173,39 +184,50 @@ with main_tabs[0]:
             universe = get_universe(selected_universe)
             st.caption(f"{len(universe)} stocks")
         
-        st.markdown("**Capital & Size**")
-        initial_capital = st.number_input("Starting Capital ($)", 10000, 100000000, 100000, 10000)
-        num_stocks = st.number_input("No. of Stocks in Portfolio*", 1, 50, 5)
-        exit_rank = st.number_input("Exit Rank*", num_stocks, 200, num_stocks * 2, 
-                                    help="Stocks will exit if they fall below this rank. Should be > Portfolio Size")
+        # Capital, Stocks, Exit Rank in compact rows
+        st.markdown("**Portfolio Settings**")
+        cap_col1, cap_col2 = st.columns(2)
+        with cap_col1:
+            initial_capital = st.number_input("Capital ($)", 10000, 100000000, 100000, 10000)
+        with cap_col2:
+            num_stocks = st.number_input("Stocks", 1, 50, 5)
         
-        reinvest_profits = st.checkbox("Reinvest Profits", value=True,
-                                       help="If enabled, reinvest starting capital + profits. If disabled, only reinvest initial capital amount.")
+        exit_col1, exit_col2 = st.columns(2)
+        with exit_col1:
+            exit_rank = st.number_input("Exit Rank", num_stocks, 200, num_stocks * 2, 
+                                        help="Stocks exit if they fall below this rank")
+        with exit_col2:
+            reinvest_profits = st.checkbox("Reinvest Profits", value=True)
         
-        st.markdown("**Time Period**")
-        start_date = st.date_input("Start Date", datetime.date(2020, 1, 1))
-        end_date = st.date_input("End Date", datetime.date.today())
+        use_historical_universe = st.checkbox("Historical Universe (Beta)", value=False,
+                                             help="Use point-in-time index constituents to avoid survivorship bias")
         
-        st.markdown("**Rebalancing**")
-        rebal_freq_options = ["Weekly", "Every 2 Weeks", "Monthly", "Bi-Monthly", "Quarterly", "Half-Yearly", "Annually"]
-        rebalance_label = st.selectbox("Frequency", rebal_freq_options, index=2)
-        
-        rebal_day = None
-        rebalance_date = None
-        
-        if rebalance_label in ["Weekly", "Every 2 Weeks"]:
-            rebal_day = st.selectbox("Rebalance Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-        else:
-            rebalance_date = st.number_input("Rebalance Date (1-30)", 1, 30, 1,
-                                            help="Day of month to rebalance portfolio")
-                                            
-        alt_day_option = st.selectbox("Alternative Rebalance Day", 
-                                     ["Previous Day", "Next Day"],
-                                     index=1,
-                                     help="If rebalance day is holiday, use this option")
-        
-        use_historical_universe = st.checkbox("Historical Universe Selection", value=True,
-                                             help="Avoid survivorship bias by using historical index components (if available)")
+        # ===== TIME PERIOD & REBALANCING (in expander) =====
+        with st.expander("📅 Time Period & Rebalancing", expanded=False):
+            date_col1, date_col2 = st.columns(2)
+            with date_col1:
+                start_date = st.date_input("Start Date", datetime.date(2020, 1, 1))
+            with date_col2:
+                end_date = st.date_input("End Date", datetime.date.today())
+            
+            rebal_freq_options = ["Weekly", "Every 2 Weeks", "Monthly", "Bi-Monthly", "Quarterly", "Half-Yearly", "Annually"]
+            rebalance_label = st.selectbox("Frequency", rebal_freq_options, index=2)
+            
+            if rebalance_label == "Weekly":
+                rebal_day = st.selectbox("Rebalance Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+                rebalance_date = None
+            elif rebalance_label == "Every 2 Weeks":
+                rebal_day = st.selectbox("Rebalance Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+                rebalance_date = None
+            else:  # Monthly and above
+                rebalance_date = st.number_input("Rebalance Date (1-30)", 1, 30, 1,
+                                                help="Day of month to rebalance portfolio")
+                rebal_day = None
+            
+            alt_day_option = st.selectbox("If Holiday", 
+                                         ["Previous Day", "Next Day"],
+                                         index=1,
+                                         help="If rebalance day is holiday, use this option")
 
         
         # ===== POSITION SIZING (in expander) =====
@@ -349,25 +371,7 @@ with main_tabs[0]:
                 st.markdown("**Risk-Adjusted:** " + " • ".join(risk_adj[:4]) + "...")
         
         st.markdown("---")
-        run_btn = st.button("🚀 Run Backtest", type="primary")
-    
-    with col_metrics:
-        st.subheader("Metrics")
-        st.markdown("**Performance**")
-        for m in ["1 Month Performance", "3 Month Performance", "6 Month Performance"]:
-            st.caption(m)
-        
-        st.markdown("**Volatility**")
-        for m in ["1 Month Volatility", "3 Month Volatility", "6 Month Volatility"]:
-            st.caption(m)
-        
-        st.markdown("**Downside Volatility**")
-        for m in ["3 Month Downside Volatility", "6 Month Downside Volatility"]:
-            st.caption(m)
-        
-        st.markdown("**Risk-Adjusted**")
-        for m in ["6 Month Sharpe", "6 Month Sortino", "6 Month Calmar"]:
-            st.caption(m)
+        run_btn = st.button("🚀 Run Backtest", type="primary", use_container_width=True)
     
     # Results Section
     if run_btn:
@@ -555,6 +559,14 @@ with main_tabs[0]:
                             
                             adv_col4.metric("Total Turnover", f"${metrics.get('Total Turnover', 0):,.0f}")
                             adv_col4.metric("Total Charges", f"${metrics.get('Total Charges', 0):,.0f}")
+                            
+                            # US Charges Breakdown Expander
+                            with st.expander("📋 US Trading Charges Breakdown"):
+                                charges_col1, charges_col2 = st.columns(2)
+                                charges_col1.write(f"**SEC Fees:** ${metrics.get('SEC Fees', 0):,.2f}")
+                                charges_col1.write(f"**FINRA TAF:** ${metrics.get('FINRA TAF', 0):,.2f}")
+                                charges_col2.write(f"**Total Turnover:** ${metrics.get('Total Turnover', 0):,.2f}")
+                                charges_col2.write(f"**Total Charges:** ${metrics.get('Total Charges', 0):,.2f}")
                         
                         with result_tabs[1]:
                             st.markdown("### Performance Charts")
