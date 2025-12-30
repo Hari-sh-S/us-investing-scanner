@@ -188,7 +188,7 @@ with main_tabs[0]:
         st.markdown("**Portfolio Settings**")
         cap_col1, cap_col2 = st.columns(2)
         with cap_col1:
-            initial_capital = st.number_input("Capital ($)", 10000, 100000000, 100000, 10000)
+            initial_capital = st.number_input("Capital ($)", 1000, 100000000, 100000, 1000)
         with cap_col2:
             num_stocks = st.number_input("Stocks", 1, 50, 5)
         
