@@ -13,6 +13,7 @@ import io
 import time
 import json
 from pathlib import Path
+from monte_carlo import MonteCarloSimulator, PortfolioMonteCarloSimulator, extract_trade_pnls, extract_monthly_returns
 
 # Page config - MUST be first Streamlit command
 st.set_page_config(
@@ -186,21 +187,39 @@ with main_tabs[0]:
         end_date = st.date_input("End Date", datetime.date.today())
         
         st.markdown("**Rebalancing**")
-        rebal_freq_options = ["Weekly", "Monthly"]
-        rebalance_label = st.selectbox("Frequency", rebal_freq_options, index=1)
+        rebal_freq_options = ["Weekly", "Every 2 Weeks", "Monthly", "Bi-Monthly", "Quarterly", "Half-Yearly", "Annually"]
+        rebalance_label = st.selectbox("Frequency", rebal_freq_options, index=2)
         
-        if rebalance_label == "Weekly":
+        rebal_day = None
+        rebalance_date = None
+        
+        if rebalance_label in ["Weekly", "Every 2 Weeks"]:
             rebal_day = st.selectbox("Rebalance Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-            rebalance_date = None
-        else:  # Monthly
+        else:
             rebalance_date = st.number_input("Rebalance Date (1-30)", 1, 30, 1,
                                             help="Day of month to rebalance portfolio")
-            rebal_day = None
-        
+                                            
         alt_day_option = st.selectbox("Alternative Rebalance Day", 
                                      ["Previous Day", "Next Day"],
                                      index=1,
                                      help="If rebalance day is holiday, use this option")
+        
+        use_historical_universe = st.checkbox("Historical Universe Selection", value=True,
+                                             help="Avoid survivorship bias by using historical index components (if available)")
+
+        
+        # ===== POSITION SIZING (in expander) =====
+        with st.expander("⚖️ Position Sizing", expanded=False):
+            sizing_methods = ["Equal Weight", "Inverse Volatility", "Score-Weighted", "Risk Parity"]
+            sizing_method = st.selectbox("Sizing Method", sizing_methods, index=0)
+            
+            use_max_cap = st.checkbox("Max Position Cap", value=False)
+            max_cap_pct = st.number_input("Max Cap (%)", 1.0, 100.0, 25.0) if use_max_cap else None
+            
+            position_sizing_config = {
+                'method': sizing_method,
+                'max_cap_pct': max_cap_pct if use_max_cap else None
+            }
         
         # ===== REGIME FILTER (in expander) =====
         with st.expander("🛡️ Regime Filter", expanded=False):
@@ -419,7 +438,9 @@ with main_tabs[0]:
                             rebal_config,
                             regime_config,
                             uncorrelated_config,
-                            reinvest_profits
+                            reinvest_profits,
+                            position_sizing_config=position_sizing_config,
+                            historical_universe_config={'use_historical': use_historical_universe}
                         )
                         metrics = engine.get_metrics()
                         
@@ -496,7 +517,7 @@ with main_tabs[0]:
                             )
                         
                         # Result tabs
-                        result_tabs = st.tabs(["Performance Metrics", "Charts", "Monthly Breakup", "Trade History"])
+                        result_tabs = st.tabs(["Performance", "Charts", "Monthly Report", "Monte Carlo", "Equity Regime", "Trade History"])
                         
                         with result_tabs[0]:
                             st.markdown("### Key Performance Indicators")
@@ -582,37 +603,129 @@ with main_tabs[0]:
                             st.plotly_chart(fig_dd, use_container_width=True)
 
                         with result_tabs[2]:
-                            st.markdown("### Monthly Returns Breakup")
+                            st.markdown("### 📅 Monthly Performance Report")
                             if not engine.portfolio_df.empty:
                                 monthly_returns = engine.get_monthly_returns()
                                 if not monthly_returns.empty:
-                                    display_monthly = monthly_returns.copy()
+                                    # Highlight positive/negative months
+                                    def highlight_returns(val):
+                                        if pd.isna(val) or val == 0: return ""
+                                        color = "#28a745" if val > 0 else "#dc3545"
+                                        return f"color: {color}; font-weight: bold;"
 
-                                    def color_negative_red(val):
-                                        if pd.isna(val):
-                                            return ''
-                                        color = '#28a745' if val > 0 else '#dc3545' if val < 0 else '#6c757d'
-                                        return f'color: {color}; font-weight: 600'
-
-                                    styled_df = display_monthly.style.applymap(color_negative_red)
-                                    st.dataframe(styled_df, use_container_width=True, height=400)
-
+                                    st.dataframe(
+                                        monthly_returns.style.applymap(highlight_returns),
+                                        use_container_width=True,
+                                        height=400
+                                    )
+                                    
+                                    # Monthly Stats
                                     st.markdown("---")
-                                    col1, col2, col3, col4 = st.columns(4)
-
-                                    all_returns = monthly_returns.iloc[:, :-1].values.flatten()
-                                    all_returns = all_returns[~pd.isna(all_returns)]
-
-                                    if len(all_returns) > 0:
-                                        col1.metric("Positive Months", f"{(all_returns > 0).sum()} ({(all_returns > 0).sum()/len(all_returns)*100:.1f}%)")
-                                        col2.metric("Negative Months", f"{(all_returns < 0).sum()} ({(all_returns < 0).sum()/len(all_returns)*100:.1f}%)")
-                                        col3.metric("Best Month", f"{all_returns.max():.2f}%")
-                                        col4.metric("Worst Month", f"{all_returns.min():.2f}%")
+                                    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                                    
+                                    all_m_returns = monthly_returns.drop(columns=['Total']).values.flatten()
+                                    all_m_returns = all_m_returns[~pd.isna(all_m_returns)]
+                                    
+                                    if len(all_m_returns) > 0:
+                                        m_col1.metric("Positive Months", f"{(all_m_returns > 0).sum()}")
+                                        m_col2.metric("Negative Months", f"{(all_m_returns < 0).sum()}")
+                                        m_col3.metric("Best Month", f"{max(all_m_returns):.2f}%")
+                                        m_col4.metric("Worst Month", f"{min(all_m_returns):.2f}%")
                             else:
-                                st.info("No data available for monthly breakdown")
+                                st.info("No monthly data available")
 
                         with result_tabs[3]:
-                            st.markdown("### Trade History")
+                            st.markdown("### 🎲 Monte Carlo Risk Analysis")
+                            
+                            mc_col1, mc_col2 = st.columns([1, 2])
+                            
+                            with mc_col1:
+                                mc_type = st.radio("Simulation Level", ["Trade-Level", "Portfolio-Level"], horizontal=True)
+                                mc_method = st.selectbox("Method", ["reshuffle", "resample"], help="Reshuffle: Permute original outcomes. Resample: Bootstrap with replacement.")
+                                run_mc = st.button("🔄 Run Simulation", type="primary", use_container_width=True)
+                            
+                            if run_mc:
+                                with st.spinner("Running 1000 simulations..."):
+                                    if mc_type == "Trade-Level":
+                                        pnls = extract_trade_pnls(engine.trades_df)
+                                        if len(pnls) < 10:
+                                            st.warning("Insufficient trades for robust simulation (min 10 recommended)")
+                                        sim = MonteCarloSimulator(pnls, initial_capital)
+                                    else:
+                                        m_returns = extract_monthly_returns(engine.trades_df, initial_capital)
+                                        sim = PortfolioMonteCarloSimulator(m_returns, initial_capital)
+                                    
+                                    results = sim.run_simulations(method=mc_method)
+                                    interpretations = sim.get_interpretation()
+                                    
+                                    # MC Metrics
+                                    st.markdown("#### Simulation Key Results")
+                                    res_col1, res_col2, res_col3 = st.columns(3)
+                                    
+                                    res_col1.metric("Max DD (95% Conf)", f"{results['mc_max_dd_95']:.1f}%")
+                                    res_col2.metric("Worst Case DD", f"{results['mc_max_dd_worst']:.1f}%")
+                                    res_col3.metric("Prob. of Ruin (10%)", f"{results['ruin_probability_10']:.1f}%")
+                                    
+                                    # Plot MC Curves
+                                    fig_mc = go.Figure()
+                                    for i in range(min(50, len(results['sample_curves']))):
+                                        fig_mc.add_trace(go.Scatter(
+                                            y=results['sample_curves'][i], 
+                                            mode='lines', 
+                                            line=dict(width=0.5, color='rgba(0,123,255,0.1)'),
+                                            showlegend=False
+                                        ))
+                                    
+                                    # Add median curve
+                                    median_curve = np.median(results['sample_curves'], axis=0)
+                                    fig_mc.add_trace(go.Scatter(
+                                        y=median_curve, 
+                                        mode='lines', 
+                                        line=dict(width=2, color='#007bff'),
+                                        name='Median Projection'
+                                    ))
+                                    
+                                    fig_mc.update_layout(title="Monte Carlo Equity Projections (50 Samples)", xaxis_title="Time", yaxis_title="Equity ($)", template="plotly_white")
+                                    st.plotly_chart(fig_mc, use_container_width=True)
+                                    
+                                    # Risk Assessment
+                                    st.markdown("#### 🛡️ Risk Assessment")
+                                    for key, text in interpretations.items():
+                                        st.info(f"**{key.replace('_', ' ').title()}:** {text}")
+
+                        with result_tabs[4]:
+                            st.markdown("### 🛡️ Equity Regime Analysis")
+                            regime_analysis = engine.get_equity_regime_analysis()
+                            
+                            if regime_analysis:
+                                comp_df = regime_analysis['comparison_df']
+                                triggers = regime_analysis['trigger_events']
+                                
+                                # Plot Comparison
+                                fig_regime = go.Figure()
+                                fig_regime.add_trace(go.Scatter(x=comp_df.index, y=comp_df['Actual'], name="With Regime Filter", line=dict(color="#007bff")))
+                                fig_regime.add_trace(go.Scatter(x=comp_df.index, y=comp_df['Theoretical'], name="Theoretical (No Filter)", line=dict(color="#6c757d", dash='dot')))
+                                
+                                # Add Vertical Lines for Triggers
+                                for event in triggers:
+                                    color = "red" if event['type'] == 'trigger' else "green"
+                                    fig_regime.add_vline(x=event['date'], line_dash="dash", line_color=color, opacity=0.5)
+                                
+                                fig_regime.update_layout(title="Actual vs Theoretical Equity Curve", xaxis_title="Date", yaxis_title="Equity ($)", template="plotly_white")
+                                st.plotly_chart(fig_regime, use_container_width=True)
+                                
+                                # Trigger Table
+                                if triggers:
+                                    st.markdown("#### Regime Trigger Events")
+                                    trigger_df = pd.DataFrame(triggers)
+                                    st.table(trigger_df)
+                                else:
+                                    st.info("No regime trigger events recorded during this period.")
+                            else:
+                                st.info("Run a backtest with a Regime Filter enabled to see analysis here.")
+
+                        with result_tabs[5]:
+                            st.markdown("### 📜 Trade History")
                             if not engine.trades_df.empty:
                                 trades_df = engine.trades_df.copy()
                                 buy_trades = trades_df[trades_df['Action'] == 'BUY'].copy()

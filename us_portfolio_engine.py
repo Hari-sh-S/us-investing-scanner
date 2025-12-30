@@ -389,11 +389,20 @@ class USPortfolioEngine:
             day_map = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
             target_day = day_map[rebal_config['day']]
             rebalance_dates = [d for d in all_dates if d.weekday() == target_day]
-        else:  # Monthly
+            
+        elif freq == 'Every 2 Weeks':
+            day_map = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+            target_day = day_map[rebal_config['day']]
+            weekly_dates = [d for d in all_dates if d.weekday() == target_day]
+            # Take every second week
+            rebalance_dates = weekly_dates[::2]
+            
+        else:  # Monthly based frequencies
             target_date = rebal_config['date']
             alt_option = rebal_config.get('alt_day', 'Next Day')
             
-            rebalance_dates = []
+            # First get all monthly dates
+            monthly_dates = []
             month_groups = {}
             for date in all_dates:
                 key = (date.year, date.month)
@@ -401,7 +410,10 @@ class USPortfolioEngine:
                     month_groups[key] = []
                 month_groups[key].append(date)
             
-            for (year, month), month_dates in month_groups.items():
+            sorted_months = sorted(month_groups.keys())
+            
+            for key in sorted_months:
+                month_dates = month_groups[key]
                 month_dates_sorted = sorted(month_dates)
                 rebalance_date = None
                 
@@ -427,10 +439,118 @@ class USPortfolioEngine:
                             rebalance_date = month_dates_sorted[-1]
                 
                 if rebalance_date:
-                    rebalance_dates.append(rebalance_date)
+                    monthly_dates.append(rebalance_date)
+            
+            # Filter based on frequency
+            if freq == 'Monthly':
+                rebalance_dates = monthly_dates
+            elif freq == 'Bi-Monthly':
+                rebalance_dates = monthly_dates[::2]
+            elif freq == 'Quarterly':
+                # Jan, Apr, Jul, Oct usually, or just start from first available
+                rebalance_dates = monthly_dates[::3]
+            elif freq == 'Half-Yearly':
+                rebalance_dates = monthly_dates[::6]
+            elif freq == 'Annually':
+                rebalance_dates = monthly_dates[::12]
+            else:
+                rebalance_dates = monthly_dates
         
-        print(f"Generated {len(rebalance_dates)} rebalance dates from {len(all_dates)} trading days")
-        return sorted(rebalance_dates)
+        # Ensure dates are sorted
+        rebalance_dates = sorted(list(set(rebalance_dates)))
+        print(f"Generated {len(rebalance_dates)} rebalance dates ({freq}) from {len(all_dates)} trading days")
+        return rebalance_dates
+
+    def _apply_position_sizing(self, top_stocks, available_capital, method='equal_weight', volatilities=None, scores=None):
+        """
+        Apply position sizing logic to determine allocation per stock.
+        
+        Args:
+            top_stocks (list): List of ticker symbols
+            available_capital (float): Total capital to allocate
+            method (str): 'equal_weight', 'inverse_volatility', 'score_weighted', 'risk_parity'
+            volatilities (dict): Dictionary of {ticker: volatility} for vol-based methods
+            scores (dict): Dictionary of {ticker: score} for score-weighted method
+            
+        Returns:
+            dict: {ticker: allocated_amount}
+        """
+        if not top_stocks:
+            return {}
+            
+        allocations = {}
+        cleaned_method = method.lower().replace(' ', '_').replace('-', '_')
+        
+        if cleaned_method == 'equal_weight' or cleaned_method == 'undefined':
+            weight = 1.0 / len(top_stocks)
+            for ticker in top_stocks:
+                allocations[ticker] = available_capital * weight
+                
+        elif cleaned_method == 'inverse_volatility' and volatilities:
+            # Calculate inverse volatility weights
+            inv_vols = {}
+            total_inv_vol = 0
+            
+            for ticker in top_stocks:
+                # Default to average vol if missing (handle 0 vol gracefully)
+                vol = volatilities.get(ticker, 0.20)
+                if vol <= 0.001: vol = 0.001  # Avoid division by zero
+                
+                inv_vol = 1.0 / vol
+                inv_vols[ticker] = inv_vol
+                total_inv_vol += inv_vol
+                
+            if total_inv_vol > 0:
+                for ticker in top_stocks:
+                    weight = inv_vols[ticker] / total_inv_vol
+                    allocations[ticker] = available_capital * weight
+            else:
+                # Fallback to equal weight
+                weight = 1.0 / len(top_stocks)
+                for ticker in top_stocks:
+                    allocations[ticker] = available_capital * weight
+
+        elif cleaned_method == 'risk_parity' and volatilities:
+            # Simplified Risk Parity: Inverse Volatility (true risk parity requires covariance matrix)
+            # For independent assets, Risk Parity = Inverse Volatility
+            return self._apply_position_sizing(top_stocks, available_capital, 'inverse_volatility', volatilities, scores)
+            
+        elif cleaned_method == 'score_weighted' and scores:
+            # Weight proportional to score (assuming positive scores)
+            # If negative scores exist, shift them to be positive or filter
+            valid_scores = {}
+            min_score = 0
+            
+            for ticker in top_stocks:
+                s = scores.get(ticker, 0)
+                valid_scores[ticker] = s
+                min_score = min(min_score, s)
+                
+            # Shift scores if needed to make them all positive
+            shift = abs(min_score) + 1 if min_score < 0 else 0
+            
+            total_score_val = 0
+            for ticker in valid_scores:
+                valid_scores[ticker] += shift
+                total_score_val += valid_scores[ticker]
+                
+            if total_score_val > 0:
+                for ticker in top_stocks:
+                    weight = valid_scores[ticker] / total_score_val
+                    allocations[ticker] = available_capital * weight
+            else:
+                # Fallback
+                weight = 1.0 / len(top_stocks)
+                for ticker in top_stocks:
+                    allocations[ticker] = available_capital * weight
+                    
+        else:
+            # Default fallback
+            weight = 1.0 / len(top_stocks)
+            for ticker in top_stocks:
+                allocations[ticker] = available_capital * weight
+                
+        return allocations
 
     def _check_regime_filter(self, date, regime_config, current_equity=0, peak_equity=0):
         """Check if regime filter is triggered.
@@ -510,7 +630,8 @@ class USPortfolioEngine:
         return False, 'none', 0.0
 
     def run_rebalance_strategy(self, scoring_formula, num_stocks, exit_rank, 
-                              rebal_config, regime_config=None, uncorrelated_config=None, reinvest_profits=True):
+                              rebal_config, regime_config=None, uncorrelated_config=None, 
+                              reinvest_profits=True, position_sizing_config=None, historical_universe_config=None):
         """Advanced backtesting engine with all features."""
         if not self.data:
             print("No data available")
@@ -572,6 +693,12 @@ class USPortfolioEngine:
             recovery_dd_pct = equity_sl_pct  # Fallback to same as trigger
         self.regime_trigger_events = []
         
+        # Theoretical equity tracking (what-if analysis without regime filter)
+        self.theoretical_history = []
+        theoretical_cash = self.initial_capital
+        theoretical_holdings = {}
+        has_regime_filter = regime_config is not None and regime_config.get('type') != 'none'
+        
         # EQUITY_MA tracking
         equity_ma_period = regime_config.get('ma_period', 50) if is_equity_ma_regime else 50
         equity_values_history = []  # Track equity values for MA calculation
@@ -587,7 +714,7 @@ class USPortfolioEngine:
                         proceeds = shares * sell_price
                         cash += proceeds
                         
-                        self.trades.append({
+                self.trades.append({
                             'Date': date,
                             'Ticker': ticker,
                             'Action': 'SELL',
@@ -597,6 +724,15 @@ class USPortfolioEngine:
                         })
                 
                 holdings = {}
+                
+                # Update theoretical portfolio (always fully invested / rebalanced as if no regime filter)
+                if has_regime_filter:
+                    # Sell theoretical holdings
+                    for ticker, shares in theoretical_holdings.items():
+                        if ticker in self.data and date in self.data[ticker].index:
+                            cp = self._get_scalar(self.data[ticker].loc[date, 'Close'])
+                            theoretical_cash += shares * cp
+                    theoretical_holdings = {}
                 
                 if reinvest_profits:
                     investable_capital = float(cash)
@@ -753,27 +889,76 @@ class USPortfolioEngine:
                 top_stocks = ranked_stocks[:num_stocks]
                 
                 if top_stocks and available_for_stocks > 0:
-                    position_value = available_for_stocks / len(top_stocks)
+                    # POSITION SIZING LOGIC
+                    volatilities = {}
+                    sizing_method = position_sizing_config.get('method', 'Equal Weight') if position_sizing_config else 'Equal Weight'
+                    
+                    if sizing_method in ['Inverse Volatility', 'Risk Parity']:
+                        for ticker, _ in top_stocks:
+                             # Use 6 Month Volatility if available, else calc
+                             if ticker in self.data and '6 Month Volatility' in self.data[ticker].columns and date in self.data[ticker].index:
+                                 vol = self.data[ticker].loc[date, '6 Month Volatility']
+                                 volatilities[ticker] = float(vol)
+                             else:
+                                 volatilities[ticker] = 0.20 # Default
+                    
+                    allocations = self._apply_position_sizing(
+                        [t[0] for t in top_stocks], 
+                        available_for_stocks, 
+                        method=sizing_method,
+                        volatilities=volatilities,
+                        scores=dict(top_stocks)
+                    )
                     
                     for ticker, score in top_stocks:
-                        buy_price = self._get_scalar(self.data[ticker].loc[date, 'Close'])
-                        shares = int(position_value / buy_price)
+                        amount = allocations.get(ticker, 0)
                         
-                        if shares > 0:
-                            cost = shares * buy_price
-                            cash -= cost
-                            holdings[ticker] = shares
+                        # Apply Max Position Cap
+                        if position_sizing_config and position_sizing_config.get('max_cap_pct'):
+                            max_amt = investable_capital * (position_sizing_config['max_cap_pct'] / 100.0)
+                            amount = min(amount, max_amt)
+                        
+                        buy_price = self._get_scalar(self.data[ticker].loc[date, 'Close'])
+                        if buy_price > 0:
+                            shares = int(amount / buy_price)
                             
-                            self.trades.append({
-                                'Date': date,
-                                'Ticker': ticker,
-                                'Action': 'BUY',
-                                'Shares': shares,
-                                'Price': buy_price,
-                                'Value': cost,
-                                'Score': score,
-                                'Rank': ranked_stocks.index((ticker, score)) + 1
-                            })
+                            if shares > 0:
+                                cost = shares * buy_price
+                                cash -= cost
+                                holdings[ticker] = shares
+                                
+                                self.trades.append({
+                                    'Date': date,
+                                    'Ticker': ticker,
+                                    'Action': 'BUY',
+                                    'Shares': shares,
+                                    'Price': buy_price,
+                                    'Value': cost,
+                                    'Score': score,
+                                    'Rank': ranked_stocks.index((ticker, score)) + 1
+                                })
+                
+                # Theoretical Portfolio Rebalancing (No Regime Filter)
+                if has_regime_filter:
+                    # Always assume full investment for theoretical curve
+                    # Use same top stocks and sizing (Equal Weight default for simplicity or same as main)
+                    theo_available = theoretical_cash
+                    theo_allocations = self._apply_position_sizing(
+                        [t[0] for t in top_stocks], 
+                        theo_available, 
+                        method=sizing_method,
+                        volatilities=volatilities,
+                        scores=dict(top_stocks)
+                    )
+                    
+                    for ticker, amount in theo_allocations.items():
+                        if ticker in self.data and date in self.data[ticker].index:
+                            bp = self._get_scalar(self.data[ticker].loc[date, 'Close'])
+                            if bp > 0:
+                                sh = int(amount / bp)
+                                if sh > 0:
+                                    theoretical_cash -= sh * bp
+                                    theoretical_holdings[ticker] = sh
             
             # Calculate portfolio value
             holdings_value = 0.0
@@ -797,6 +982,24 @@ class USPortfolioEngine:
                 'Holdings Value': holdings_value,
                 'Positions': len(holdings)
             })
+
+            # Track theoretical portfolio value (Daily)
+            if has_regime_filter:
+                theo_holdings_val = 0.0
+                for ticker, shares in theoretical_holdings.items():
+                    if ticker in self.data:
+                         if date in self.data[ticker].index:
+                             cp = self._get_scalar(self.data[ticker].loc[date, 'Close'])
+                         elif ticker in last_known_prices:
+                             cp = last_known_prices[ticker]
+                         else:
+                             continue
+                         theo_holdings_val += shares * cp
+                
+                self.theoretical_history.append({
+                    'Date': date,
+                    'Theoretical_Value': theoretical_cash + theo_holdings_val
+                })
         
         # Create DataFrames
         self.portfolio_df = pd.DataFrame(portfolio_history)
@@ -806,11 +1009,12 @@ class USPortfolioEngine:
         print(f"Backtest complete: {len(self.portfolio_df)} days, {len(self.trades)} trades")
 
     def get_metrics(self):
-        """Calculate comprehensive performance metrics."""
+        """Calculate comprehensive performance metrics including US charges."""
         if self.portfolio_df.empty:
             return None
         
         portfolio_values = self.portfolio_df['Portfolio Value']
+        running_max = portfolio_values.cummax()
         
         # Basic Returns
         initial_value = portfolio_values.iloc[0]
@@ -824,7 +1028,6 @@ class USPortfolioEngine:
         cagr = ((final_value / initial_value) ** (1 / max(years, 0.1)) - 1) * 100 if years > 0 else 0
         
         # Drawdown
-        running_max = portfolio_values.cummax()
         drawdown = (portfolio_values - running_max) / running_max * 100
         max_drawdown = drawdown.min()
         
@@ -837,7 +1040,7 @@ class USPortfolioEngine:
         excess_return = (cagr / 100) - risk_free_rate
         sharpe = excess_return / (volatility / 100) if volatility > 0 else 0
         
-        # Win Rate and Trade Statistics
+        # Advanced Stats
         wins = 0
         losses = 0
         win_amounts = []
@@ -848,94 +1051,76 @@ class USPortfolioEngine:
         last_was_win = None
         total_trades = 0
         
-        if not self.trades_df.empty and 'Action' in self.trades_df.columns:
-            buy_trades = self.trades_df[self.trades_df['Action'] == 'BUY'].copy()
-            sell_trades = self.trades_df[self.trades_df['Action'] == 'SELL'].copy()
+        if not self.trades_df.empty:
+            buy_trades = self.trades_df[self.trades_df['Action'] == 'BUY']
+            sell_trades = self.trades_df[self.trades_df['Action'] == 'SELL']
             
-            if not sell_trades.empty:
-                for _, sell_row in sell_trades.iterrows():
-                    ticker = sell_row['Ticker']
-                    sell_date = sell_row['Date']
-                    sell_value = sell_row['Value']
+            for _, sell in sell_trades.iterrows():
+                ticker = sell['Ticker']
+                sell_date = sell['Date']
+                sell_price = float(sell['Price'])
+                shares = int(sell['Shares'])
+                
+                # Find matching buy (simple LIFO/FIFO not implemented, just latest before sell)
+                prev_buys = buy_trades[(buy_trades['Ticker'] == ticker) & (buy_trades['Date'] < sell_date)]
+                if not prev_buys.empty:
+                    buy = prev_buys.iloc[-1]
+                    pnl = (sell_price - float(buy['Price'])) * shares
+                    total_trades += 1
                     
-                    # Find previous BUY for this ticker
-                    prev_buys = buy_trades[(buy_trades['Ticker'] == ticker) & (buy_trades['Date'] < sell_date)]
-                    if not prev_buys.empty:
-                        buy_row = prev_buys.iloc[-1]
-                        buy_value = buy_row['Value']
-                        pnl = sell_value - buy_value
+                    if pnl > 0:
+                        wins += 1
+                        win_amounts.append(pnl)
+                        current_streak = current_streak + 1 if last_was_win else 1
+                        max_consecutive_wins = max(max_consecutive_wins, current_streak)
+                        last_was_win = True
+                    else:
+                        losses += 1
+                        loss_amounts.append(abs(pnl))
+                        current_streak = current_streak + 1 if last_was_win is False else 1
+                        max_consecutive_losses = max(max_consecutive_losses, current_streak)
+                        last_was_win = False
                         
-                        total_trades += 1
-                        
-                        if pnl > 0:
-                            wins += 1
-                            win_amounts.append(pnl)
-                            if last_was_win == True:
-                                current_streak += 1
-                            else:
-                                current_streak = 1
-                            max_consecutive_wins = max(max_consecutive_wins, current_streak)
-                            last_was_win = True
-                        elif pnl < 0:
-                            losses += 1
-                            loss_amounts.append(abs(pnl))
-                            if last_was_win == False:
-                                current_streak += 1
-                            else:
-                                current_streak = 1
-                            max_consecutive_losses = max(max_consecutive_losses, current_streak)
-                            last_was_win = False
-            
-            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
-        else:
-            win_rate = 0
-        
-        # Expectancy
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
         avg_win = np.mean(win_amounts) if win_amounts else 0
         avg_loss = np.mean(loss_amounts) if loss_amounts else 0
+        
+        # Expectancy
         win_pct = wins / total_trades if total_trades > 0 else 0
         loss_pct = losses / total_trades if total_trades > 0 else 0
         expectancy = (win_pct * avg_win) - (loss_pct * avg_loss)
         
-        # Drawdown Recovery Analysis
-        is_in_drawdown = portfolio_values < running_max
+        # Drawdown Recovery
+        is_in_dd = portfolio_values < running_max
         max_recovery_days = 0
         max_recovery_trades = 0
         
-        if is_in_drawdown.any():
-            drawdown_start = None
-            for i, (date, in_dd) in enumerate(is_in_drawdown.items()):
-                if in_dd and drawdown_start is None:
-                    drawdown_start = date
-                elif not in_dd and drawdown_start is not None:
-                    days_in_dd = (date - drawdown_start).days
+        if is_in_dd.any():
+            dd_start = None
+            for i, (date, in_dd) in enumerate(is_in_dd.items()):
+                if in_dd and dd_start is None:
+                    dd_start = date
+                elif not in_dd and dd_start is not None:
+                    days_in_dd = (date - dd_start).days
                     max_recovery_days = max(max_recovery_days, days_in_dd)
-                    
-                    if not self.trades_df.empty and 'Date' in self.trades_df.columns:
-                        trades_in_period = self.trades_df[
-                            (self.trades_df['Date'] >= drawdown_start) & 
-                            (self.trades_df['Date'] <= date)
-                        ]
-                        max_recovery_trades = max(max_recovery_trades, len(trades_in_period) // 2)
-                    
-                    drawdown_start = None
-        
-        # Total Turnover and SEC Fees (US market)
+                    # Approx count trades in period
+                    if total_trades > 0:
+                         trades_in_dd = len(self.trades_df[(self.trades_df['Date'] >= dd_start) & (self.trades_df['Date'] <= date)]) // 2
+                         max_recovery_trades = max(max_recovery_trades, trades_in_dd)
+                    dd_start = None
+
+        # US Charges Breakdown
         total_turnover = 0
-        total_buy_value = 0
         total_sell_value = 0
-        
-        if not self.trades_df.empty and 'Action' in self.trades_df.columns:
-            buy_trades_vals = self.trades_df[self.trades_df['Action'] == 'BUY']
-            sell_trades_vals = self.trades_df[self.trades_df['Action'] == 'SELL']
-            total_buy_value = buy_trades_vals['Value'].sum() if not buy_trades_vals.empty else 0
-            total_sell_value = sell_trades_vals['Value'].sum() if not sell_trades_vals.empty else 0
+        if not self.trades_df.empty:
+            total_buy_value = self.trades_df[self.trades_df['Action'] == 'BUY']['Value'].sum()
+            total_sell_value = self.trades_df[self.trades_df['Action'] == 'SELL']['Value'].sum()
             total_turnover = total_buy_value + total_sell_value
-        
-        # SEC fees (US) - approximately $22.90 per $1M of sales
+            
+        # SEC Fee: $22.90 per $1M sales (approx 0.0000229)
         sec_fee = total_sell_value * 0.0000229
-        # FINRA TAF - $0.000119 per share (simplified estimate)
-        taf_fee = total_trades * 0.50  # Rough estimate
+        # FINRA TAF: $0.000166 per share (capped at $8.30) - Simplified
+        taf_fee = total_trades * 0.50 # Placeholder
         total_charges = sec_fee + taf_fee
 
         return {
@@ -949,41 +1134,73 @@ class USPortfolioEngine:
             'Sharpe Ratio': sharpe,
             'Win Rate %': win_rate,
             'Total Trades': total_trades,
-            'Avg Win': avg_win,
-            'Avg Loss': avg_loss,
-            'Expectancy': expectancy,
             'Max Consecutive Wins': max_consecutive_wins,
             'Max Consecutive Losses': max_consecutive_losses,
             'Days to Recover from DD': max_recovery_days,
             'Trades to Recover from DD': max_recovery_trades,
+            'Expectancy': expectancy,
+            'Avg Win': avg_win,
+            'Avg Loss': avg_loss,
             'Total Turnover': total_turnover,
-            'Total Charges': total_charges,
+            'SEC Fees': sec_fee,
+            'FINRA TAF': taf_fee,
+            'Total Charges': total_charges
+        }
+
+    def get_equity_regime_analysis(self):
+        """
+        Return analysis data for Equity Regime Filter testing.
+        Compare Actual Equity Curve (with filter) vs Theoretical Curve (without filter).
+        """
+        if not hasattr(self, 'theoretical_history') or not self.theoretical_history:
+            return None
+            
+        theo_df = pd.DataFrame(self.theoretical_history)
+        if theo_df.empty:
+            return None
+        theo_df.set_index('Date', inplace=True)
+        
+        # Combine with actual portfolio values
+        if self.portfolio_df.empty:
+            return None
+            
+        comparison_df = pd.DataFrame({
+            'Actual': self.portfolio_df['Portfolio Value'],
+            'Theoretical': theo_df['Theoretical_Value']
+        }).dropna()
+        
+        return {
+            'comparison_df': comparison_df,
+            'trigger_events': self.regime_trigger_events
         }
 
     def get_monthly_returns(self):
-        """Calculate monthly returns breakdown."""
+        """Calculate monthly returns table."""
         if self.portfolio_df.empty:
             return pd.DataFrame()
+
+        df = self.portfolio_df.copy()
+        df['Year'] = df.index.year
+        df['Month'] = df.index.month
+        monthly_values = df.groupby(['Year', 'Month'])['Portfolio Value'].last()
+        monthly_returns = monthly_values.pct_change() * 100
         
-        portfolio = self.portfolio_df['Portfolio Value']
-        monthly = portfolio.resample('M').last()
-        monthly_returns = monthly.pct_change() * 100
-        
-        # Create pivot table
-        monthly_df = pd.DataFrame({
-            'Year': monthly_returns.index.year,
-            'Month': monthly_returns.index.month,
-            'Return': monthly_returns.values
-        }).dropna()
-        
-        if monthly_df.empty:
-            return pd.DataFrame()
-        
+        monthly_df = monthly_returns.reset_index()
+        monthly_df.columns = ['Year', 'Month', 'Return']
         pivot = monthly_df.pivot(index='Year', columns='Month', values='Return')
-        pivot.columns = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][:len(pivot.columns)]
         
-        # Add Total column
-        pivot['Total'] = pivot.sum(axis=1)
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        pivot.columns = [month_names[int(m)-1] for m in pivot.columns]
         
-        return pivot
+        yearly_totals = []
+        for year in pivot.index:
+            year_data = df[df['Year'] == year]['Portfolio Value']
+            if len(year_data) > 1:
+                year_return = ((year_data.iloc[-1] / year_data.iloc[0]) - 1) * 100
+                yearly_totals.append(year_return)
+            else:
+                yearly_totals.append(0)
+        
+        pivot['Total'] = yearly_totals
+        return pivot.round(2)
+

@@ -49,7 +49,7 @@ def create_excel_with_charts(config, metrics, engine=None):
     inputs_data = [
         ["Parameter", "Value"],
         ["Strategy Name", config.get('name', 'Backtest')],
-        ["Starting Capital", f"₹{config['initial_capital']:,}"],
+        ["Starting Capital", f"${config['initial_capital']:,}"],
         ["Universe", config['universe_name']],
         ["No. of Stocks in Portfolio", config['num_stocks']],
         ["Exit Rank", config.get('exit_rank', config['num_stocks'])],
@@ -80,9 +80,9 @@ def create_excel_with_charts(config, metrics, engine=None):
         ["Metric", "Value"],
         ["Start Date", config['start_date']],
         ["End Date", config['end_date']],
-        ["Invested Capital", f"₹{config['initial_capital']:,}"],
-        ["Final Value", f"₹{metrics['Final Value']:,.2f}"],
-        ["Total Return", f"₹{metrics['Total Return']:,.2f}"],
+        ["Invested Capital", f"${config['initial_capital']:,}"],
+        ["Final Value", f"${metrics['Final Value']:,.2f}"],
+        ["Total Return", f"${metrics['Total Return']:,.2f}"],
         ["Return %", f"{metrics['Return %']:.2f}%"],
         ["CAGR %", f"{metrics['CAGR %']:.2f}%"],
         ["Max Drawdown %", f"{metrics['Max Drawdown %']:.2f}%"],
@@ -92,18 +92,15 @@ def create_excel_with_charts(config, metrics, engine=None):
         ["Total Trades", metrics['Total Trades']],
         ["Max Consecutive Wins", metrics.get('Max Consecutive Wins', 0)],
         ["Max Consecutive Losses", metrics.get('Max Consecutive Losses', 0)],
-        ["Avg Win", f"₹{metrics.get('Avg Win', 0):,.2f}"],
-        ["Avg Loss", f"₹{metrics.get('Avg Loss', 0):,.2f}"],
-        ["Expectancy", f"₹{metrics.get('Expectancy', 0):,.2f}"],
+        ["Avg Win", f"${metrics.get('Avg Win', 0):,.2f}"],
+        ["Avg Loss", f"${metrics.get('Avg Loss', 0):,.2f}"],
+        ["Expectancy", f"${metrics.get('Expectancy', 0):,.2f}"],
         ["Days to Recover from DD", metrics.get('Days to Recover from DD', 0)],
         ["Trades to Recover from DD", metrics.get('Trades to Recover from DD', 0)],
-        ["Total Turnover", f"₹{metrics.get('Total Turnover', 0):,.2f}"],
-        ["Total Charges (Zerodha)", f"₹{metrics.get('Total Charges', 0):,.2f}"],
-        ["STT/CTT", f"₹{metrics.get('STT/CTT', 0):,.2f}"],
-        ["Transaction Charges", f"₹{metrics.get('Transaction Charges', 0):,.2f}"],
-        ["SEBI Charges", f"₹{metrics.get('SEBI Charges', 0):,.2f}"],
-        ["Stamp Charges", f"₹{metrics.get('Stamp Charges', 0):,.2f}"],
-        ["GST", f"₹{metrics.get('GST', 0):,.2f}"],
+        ["Total Turnover", f"${metrics.get('Total Turnover', 0):,.2f}"],
+        ["SEC Fees", f"${metrics.get('SEC Fees', 0):,.2f}"],
+        ["FINRA TAF", f"${metrics.get('FINRA TAF', 0):,.2f}"],
+        ["Total Charges (US)", f"${metrics.get('Total Charges', 0):,.2f}"],
     ]
     
     for row_idx, row in enumerate(perf_data, 1):
@@ -177,7 +174,7 @@ def create_excel_with_charts(config, metrics, engine=None):
         chart1 = LineChart()
         chart1.title = "Equity Curve"
         chart1.style = 10
-        chart1.y_axis.title = "Portfolio Value (₹)"
+        chart1.y_axis.title = "Portfolio Value ($)"
         chart1.x_axis.title = "Date"
         chart1.width = 20
         chart1.height = 10
@@ -329,7 +326,7 @@ def create_pdf_report(config, metrics, engine=None):
     story.append(Paragraph("Strategy Overview", section_style))
     
     overview_data = [
-        ["Universe", config['universe_name'], "Initial Capital", f"₹{config['initial_capital']:,}"],
+        ["Universe", config['universe_name'], "Initial Capital", f"${config['initial_capital']:,}"],
         ["Portfolio Size", f"{config['num_stocks']} stocks", "Rebalance", config['rebalance_freq']],
         ["Exit Rank", config.get('exit_rank', config['num_stocks']), "Regime Filter", "Yes" if config.get('regime_config') else "No"],
     ]
@@ -362,11 +359,11 @@ def create_pdf_report(config, metrics, engine=None):
     
     kpi_data = [
         ["Final Value", "Total Return", "CAGR", "Max Drawdown"],
-        [f"₹{metrics['Final Value']:,.0f}", f"₹{metrics['Total Return']:,.0f}", 
+        [f"${metrics['Final Value']:,.0f}", f"${metrics['Total Return']:,.0f}", 
          f"{cagr_val:.2f}%", f"{dd_val:.2f}%"],
         ["Sharpe Ratio", "Win Rate", "Total Trades", "Expectancy"],
         [f"{sharpe_val:.2f}", f"{metrics['Win Rate %']:.1f}%", 
-         f"{metrics['Total Trades']}", f"₹{metrics.get('Expectancy', 0):,.0f}"],
+         f"{metrics['Total Trades']}", f"${metrics.get('Expectancy', 0):,.0f}"],
     ]
     
     kpi_table = Table(kpi_data, colWidths=[4.5*cm, 4.5*cm, 4.5*cm, 4.5*cm])
@@ -398,9 +395,9 @@ def create_pdf_report(config, metrics, engine=None):
     stats_data = [
         ["Metric", "Value", "Metric", "Value"],
         ["Volatility", f"{metrics.get('Volatility %', 0):.2f}%", "Max Consecutive Wins", f"{metrics.get('Max Consecutive Wins', 0)}"],
-        ["Avg Win", f"₹{metrics.get('Avg Win', 0):,.0f}", "Max Consecutive Losses", f"{metrics.get('Max Consecutive Losses', 0)}"],
-        ["Avg Loss", f"₹{metrics.get('Avg Loss', 0):,.0f}", "Days to Recover from DD", f"{metrics.get('Days to Recover from DD', 0)}"],
-        ["Total Turnover", f"₹{metrics.get('Total Turnover', 0):,.0f}", "Total Charges", f"₹{metrics.get('Total Charges', 0):,.0f}"],
+        ["Avg Win", f"${metrics.get('Avg Win', 0):,.0f}", "Max Consecutive Losses", f"{metrics.get('Max Consecutive Losses', 0)}"],
+        ["Avg Loss", f"${metrics.get('Avg Loss', 0):,.0f}", "Days to Recover from DD", f"{metrics.get('Days to Recover from DD', 0)}"],
+        ["Total Turnover", f"${metrics.get('Total Turnover', 0):,.0f}", "Total Charges", f"${metrics.get('Total Charges', 0):,.0f}"],
     ]
     
     stats_table = Table(stats_data, colWidths=[4*cm, 4*cm, 4.5*cm, 4*cm])
